@@ -1,34 +1,7 @@
-scenario,line_id,month,amount,available_from,note
-downside,customer_receipts,2026-10,-60000,,Customers pay more slowly
-downside,management_reserve,2026-10,-20000,,Contingency for unplanned costs
-downside,customer_receipts,2026-11,-60000,,Customers pay more slowly
-downside,management_reserve,2026-11,-20000,,Contingency for unplanned costs
-downside,customer_receipts,2026-12,-60000,,Customers pay more slowly
-downside,management_reserve,2026-12,-20000,,Contingency for unplanned costs
-downside,customer_receipts,2027-01,-60000,,Customers pay more slowly
-downside,management_reserve,2027-01,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-01,40000,,Price increase from January 2027
-downside,customer_receipts,2027-02,-60000,,Customers pay more slowly
-downside,management_reserve,2027-02,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-02,40000,,Price increase from January 2027
-downside,customer_receipts,2027-03,-60000,,Customers pay more slowly
-downside,management_reserve,2027-03,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-03,40000,,Price increase from January 2027
-downside,customer_receipts,2027-04,-60000,,Customers pay more slowly
-downside,management_reserve,2027-04,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-04,40000,,Price increase from January 2027
-downside,customer_receipts,2027-05,-60000,,Customers pay more slowly
-downside,management_reserve,2027-05,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-05,40000,,Price increase from January 2027
-downside,customer_receipts,2027-06,-60000,,Customers pay more slowly
-downside,management_reserve,2027-06,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-06,40000,,Price increase from January 2027
-downside,customer_receipts,2027-07,-60000,,Customers pay more slowly
-downside,management_reserve,2027-07,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-07,40000,,Price increase from January 2027
-downside,customer_receipts,2027-08,-60000,,Customers pay more slowly
-downside,management_reserve,2027-08,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-08,40000,,Price increase from January 2027
-downside,customer_receipts,2027-09,-60000,,Customers pay more slowly
-downside,management_reserve,2027-09,-20000,,Contingency for unplanned costs
-upside,customer_receipts,2027-09,40000,,Price increase from January 2027
+scenario,line_id,percent,amount,from_month,to_month,note
+downside,receipts_domestic,-4,,,,Domestic customers pay less and later
+downside,receipts_export,-8,,,,Weaker export demand
+downside,suppliers_materials,4,,2027-01,,Material prices rise from January
+downside,management_reserve,,-20000,,,Contingency for unplanned costs
+upside,receipts_domestic,3,,2027-01,,Price increase from January 2027
+upside,receipts_export,5,,2027-01,,New distributor from January 2027

@@ -26,7 +26,7 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
 6. When validation passes and the user agrees, call `cash_forecast_run`.
 7. Report the returned figures exactly. Name the lowest-cash month and any
    month below zero. Say which lines came from a model and which from the
-   schedule. Point to the output files.
+   schedule. Point the user to `cash_forecast.xlsx`, the cash-flow statement.
 
 ## How to choose section and treatment
 
@@ -57,8 +57,14 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   statement of receipts and payments, and a line-by-line mapping from an
   indirect statement needs the user's decisions, not yours.
 - One currency per template. Do not convert currencies.
-- `opening_cash` is the cash balance at the end of `origin_month`, the last
-  month of actuals. Ask the user for it; do not derive it.
+- The history sheet is the user's past cash-flow statement: an `opening_cash`
+  row, one row per line, a `closing_cash` row. Copy their balances; never
+  calculate a balance yourself. If validation says the history does not tie,
+  show the user the months and amounts and ask what is missing (often FX effect
+  on cash or an unmapped row). Do not plug the difference.
+- Scenario assumptions are percentages of a line (`-5` = 5% lower receipts,
+  `5` on a payment line = 5% higher payments). Ask the user for the
+  percentages; do not invent them. Use `amount` only on an assumption line.
 - Set `data_kind` to what the user tells you (synthetic, actual, unspecified).
 
 ## What to say about limits

@@ -3,15 +3,17 @@
 The template has five tables. The same names are used for Excel sheets and for
 CSV files (inputs.csv, lines.csv, ...):
 
-  inputs        key / value: currency, origin_month, opening_cash, data_kind
+  inputs        key / value: currency, origin_month, data_kind (opening_cash only
+                if the history has no closing_cash row)
   lines         line_id, label, section, treatment
-  history       line_id, then one column per month (2024-01, 2024-02, ...)
+  history       a direct cash-flow statement: an opening_cash row, one row per
+                line, a closing_cash row; one column per month
   known_events  line_id, month, amount, known_from, note
-  assumptions   scenario, line_id, month, amount, available_from, note
+  assumptions   scenario, line_id, percent, amount, from_month, to_month, note
 
-An optional event_id / assumption_id column is accepted; without it, ids are
-generated. The first table was called "settings" in early drafts and that name
-is still read.
+Older layouts are still read: a table called "settings", an event_id column, and
+assumptions given as one amount per month (month, amount, available_from,
+assumption_id).
 
 Every problem is collected and reported in plain language, so the user can fix
 the whole file in one pass. Nothing here calculates a forecast.
@@ -33,6 +35,10 @@ TABLES = ("inputs", "lines", "history", "known_events", "assumptions")
 REQUIRED_TABLES = ("inputs", "lines", "history")
 ALIASES = {"settings": "inputs"}
 DATA_KINDS = ("synthetic", "actual", "unspecified")
+BALANCE_ROWS = {"opening_cash": "opening_cash", "opening cash": "opening_cash",
+                "opening balance": "opening_cash", "opening cash balance": "opening_cash",
+                "closing_cash": "closing_cash", "closing cash": "closing_cash",
+                "closing balance": "closing_cash", "closing cash balance": "closing_cash"}
 MAX_FILE_BYTES = 20 * 1024 * 1024
 
 
@@ -42,6 +48,19 @@ class TemplateError(ValueError):
     def __init__(self, problems):
         self.problems = list(problems)
         super().__init__("; ".join(self.problems))
+
+
+@dataclass(frozen=True)
+class ScenarioRule:
+    """One row of the assumptions table: a percentage or a fixed amount on a line."""
+    scenario: str
+    line_id: str
+    percent: float | None
+    amount: float | None
+    from_month: date | None
+    to_month: date | None
+    note: str
+    row: int
 
 
 @dataclass
@@ -55,10 +74,15 @@ class Inputs:
     data_kind: str
     source: str
     warnings: list = field(default_factory=list)
+    rules: tuple = ()                                # ScenarioRule rows (percent or amount)
+    actuals: dict = field(default_factory=dict)      # line_id -> {month: amount}, every line supplied
+    balances: dict = field(default_factory=dict)     # "opening_cash"/"closing_cash" -> {month: amount}
+    opening_cash_source: str = "inputs"
+    history_ties: bool | None = None                 # None = could not be checked
 
     @property
     def scenarios(self):
-        return sorted({a.scenario_id for a in self.assumptions})
+        return sorted({a.scenario_id for a in self.assumptions} | {r.scenario for r in self.rules})
 
     def history_months(self):
         """Usable months of history per forecast line (consecutive, ending at origin)."""
@@ -204,6 +228,16 @@ def parse_amount(value):
     return number
 
 
+def parse_percent(value):
+    """-5, '-5', '-5%' or '-5,5 %' -> -5.0 (percentage points)."""
+    if isinstance(value, str):
+        value = value.strip().rstrip("%").strip()
+    number = parse_amount(value)
+    if abs(number) > 100:
+        raise ValueError(f"percent {number:g} is outside -100 to 100")
+    return number
+
+
 def _fmt(month):
     return f"{month.year:04d}-{month.month:02d}"
 
@@ -235,10 +269,11 @@ def load_inputs(input_path):
     except ValueError as exc:
         problems.append(f"inputs: origin_month (the last month of actuals): {exc}.")
     opening = None
-    try:
-        opening = parse_amount(settings.get("opening_cash", ""))
-    except ValueError:
-        problems.append("inputs: 'opening_cash' must be a number: the cash balance at the end of origin_month.")
+    if settings.get("opening_cash", "") != "":
+        try:
+            opening = parse_amount(settings["opening_cash"])
+        except ValueError:
+            problems.append("inputs: 'opening_cash' must be a number: the cash balance at the end of origin_month.")
     data_kind = str(settings.get("data_kind", "") or "unspecified").strip().lower()
     if data_kind not in DATA_KINDS:
         problems.append("inputs: 'data_kind' must be synthetic, actual or unspecified.")
@@ -280,8 +315,8 @@ def load_inputs(input_path):
             warnings.append("No line has treatment 'forecast', so no model will run; "
                             "the result is only the known schedule and assumptions.")
 
-    # history (wide: one row per line, one column per month)
-    history = []
+    # history (a direct cash-flow statement: opening cash, one row per line, closing cash)
+    history, actuals, balances = [], {}, {"opening_cash": {}, "closing_cash": {}}
     header, rows = tables["history"]
     if not header or header[0] != "line_id":
         problems.append("history: the first column must be 'line_id'; the other columns are months.")
@@ -298,6 +333,17 @@ def load_inputs(input_path):
         for number, row in enumerate(rows, start=2):
             line_id = str(row["line_id"]).strip()
             if not line_id:
+                continue
+            balance = BALANCE_ROWS.get(line_id.lower())
+            if balance:
+                for column, month in months:
+                    cell = row.get(column, "")
+                    if cell == "":
+                        continue
+                    try:
+                        balances[balance][month] = parse_amount(cell)
+                    except ValueError:
+                        problems.append(f"history '{line_id}', {_fmt(month)}: '{cell}' is not a number.")
                 continue
             if line_id not in by_id:
                 problems.append(f"history row {number}: '{line_id}' is not in the lines table.")
@@ -316,8 +362,9 @@ def load_inputs(input_path):
                     values[month] = parse_amount(cell)
                 except ValueError:
                     problems.append(f"history '{line_id}', {_fmt(month)}: '{cell}' is not a number.")
+            actuals[line_id] = values
             if not is_forecast:
-                continue    # history of known/assumption lines is not used by the engine
+                continue    # used for the statement and the tie-out check, not by the model
             if origin is None or not values:
                 if not values:
                     problems.append(f"history '{line_id}': no values. A forecast line needs monthly history.")
@@ -383,11 +430,15 @@ def load_inputs(input_path):
                 events.append(KnownEvent(event_id, line_id, effective, known_from, amount,
                                          str(row.get("note", "")).strip()))
 
-    # assumptions
-    assumptions = []
+    # assumptions: a percentage or a fixed amount per line, over a range of months
+    assumptions, rules = [], []
     if "assumptions" in tables and tables["assumptions"][0]:
         header, rows = tables["assumptions"]
-        missing = [c for c in ("scenario", "line_id", "month", "amount") if c not in header]
+        legacy = "month" in header and "percent" not in header     # one amount per month
+        needed = ("scenario", "line_id", "month", "amount") if legacy else ("scenario", "line_id")
+        missing = [c for c in needed if c not in header]
+        if not legacy and "percent" not in header and "amount" not in header:
+            missing.append("percent (or amount)")
         if missing:
             problems.append(f"assumptions: missing column(s): {', '.join(missing)}.")
         else:
@@ -402,30 +453,96 @@ def load_inputs(input_path):
                 if not scenario:
                     problems.append(f"{where}: scenario is empty.")
                     continue
+                note = str(row.get("note", "")).strip()
+                if legacy:
+                    try:
+                        effective = parse_month(row["month"])
+                        amount = parse_amount(row["amount"])
+                        available = row.get("available_from", "")
+                        available = parse_month(available) if available != "" else (
+                            min(origin, effective) if origin else effective)
+                    except ValueError as exc:
+                        problems.append(f"{where}: {exc}.")
+                        continue
+                    if effective < available:
+                        problems.append(f"{where}: available_from is after the month the cash moves.")
+                        continue
+                    assumption_id = (str(row.get("assumption_id", "")).strip()
+                                     or f"{scenario}_{line_id}_{_fmt(effective)}_row{number}")
+                    if assumption_id in ids:
+                        problems.append(f"{where}: assumption_id '{assumption_id}' is used twice.")
+                        continue
+                    ids.add(assumption_id)
+                    assumptions.append(ManagementAssumption(
+                        assumption_id, line_id, effective, available, amount, scenario,
+                        note or "No note given"))
+                    continue
+                percent_cell, amount_cell = row.get("percent", ""), row.get("amount", "")
+                if (percent_cell == "") == (amount_cell == ""):
+                    problems.append(f"{where}: fill either 'percent' or 'amount', not both and not neither.")
+                    continue
                 try:
-                    effective = parse_month(row["month"])
-                    amount = parse_amount(row["amount"])
-                    available = row.get("available_from", "")
-                    available = parse_month(available) if available != "" else (
-                        min(origin, effective) if origin else effective)
+                    percent = parse_percent(percent_cell) if percent_cell != "" else None
+                    amount = parse_amount(amount_cell) if amount_cell != "" else None
+                    start = parse_month(row["from_month"]) if row.get("from_month", "") != "" else None
+                    end = parse_month(row["to_month"]) if row.get("to_month", "") != "" else None
                 except ValueError as exc:
                     problems.append(f"{where}: {exc}.")
                     continue
-                if effective < available:
-                    problems.append(f"{where}: available_from is after the month the cash moves.")
+                if percent is not None and by_id[line_id].treatment == "assumption":
+                    problems.append(f"{where}: '{line_id}' is an assumption line, so there is nothing to take "
+                                    "a percentage of. Give an amount instead.")
                     continue
-                assumption_id = (str(row.get("assumption_id", "")).strip()
-                                 or f"{scenario}_{line_id}_{_fmt(effective)}_row{number}")
-                if assumption_id in ids:
-                    problems.append(f"{where}: assumption_id '{assumption_id}' is used twice.")
+                if start and end and end < start:
+                    problems.append(f"{where}: to_month is before from_month.")
                     continue
-                ids.add(assumption_id)
-                assumptions.append(ManagementAssumption(
-                    assumption_id, line_id, effective, available, amount, scenario,
-                    str(row.get("note", "")).strip() or "No note given"))
+                if percent is not None and isinstance(percent_cell, (int, float)) and 0 < abs(percent) < 1:
+                    warnings.append(f"{where}: percent {percent} is read as {percent}%. If the cell is formatted "
+                                    f"as a percentage and you meant {percent * 100:g}%, type {percent * 100:g}.")
+                rules.append(ScenarioRule(scenario, line_id, percent, amount, start, end, note, number))
+
+    # opening cash for the forecast = closing cash at the end of origin_month
+    opening_source = "inputs"
+    if origin is not None:
+        from_history = balances["closing_cash"].get(origin)
+        if from_history is not None:
+            if opening is not None and abs(opening - from_history) > 0.005:
+                problems.append(f"Opening cash is given twice and differs: inputs says {opening:,.2f}, the "
+                                f"closing_cash row for {_fmt(origin)} says {from_history:,.2f}. Remove one.")
+            opening, opening_source = from_history, "history closing_cash row"
+        elif opening is None:
+            problems.append(f"No opening cash for the forecast. Add a 'closing_cash' row to the history with a "
+                            f"value for {_fmt(origin)}, or give 'opening_cash' in inputs.")
 
     if problems:
         raise TemplateError(problems)
+
+    # does the history tie? opening + all lines = closing, and closing = next opening
+    ties = None
+    opening_row, closing_row = balances["opening_cash"], balances["closing_cash"]
+    if opening_row and closing_row:
+        without_history = [l.line_id for l in lines if l.treatment != "assumption" and not actuals.get(l.line_id)]
+        if without_history:
+            warnings.append("The history could not be tied from opening to closing cash because these lines "
+                            "have no history: " + ", ".join(without_history) + ".")
+        else:
+            breaks = []
+            for month in sorted(set(opening_row) & set(closing_row)):
+                movement = sum(values.get(month, 0.0) for values in actuals.values())
+                gap = closing_row[month] - opening_row[month] - movement
+                if abs(gap) > 0.005:
+                    breaks.append(f"{_fmt(month)} ({gap:+,.2f})")
+                following = add_months(month, 1)
+                if following in opening_row and abs(opening_row[following] - closing_row[month]) > 0.005:
+                    breaks.append(f"{_fmt(following)} opening differs from {_fmt(month)} closing")
+            ties = not breaks
+            if breaks:
+                warnings.append(f"The history does not tie in {len(breaks)} place(s): opening cash + all lines "
+                                "should equal closing cash. First differences: " + "; ".join(breaks[:6]) +
+                                ". A line may be missing (for example FX effect on cash) or an amount is wrong.")
+    elif not closing_row:
+        warnings.append("The history has no opening_cash and closing_cash rows, so it could not be checked "
+                        "from opening to closing cash.")
 
     # treasury sense checks (warnings only; the forecast can still run)
     horizon = {add_months(origin, i) for i in range(1, HORIZON + 1)}
@@ -446,4 +563,5 @@ def load_inputs(input_path):
 
     return Inputs(CashFlowSchema(currency, tuple(lines)), tuple(history), origin,
                   OpeningCash(origin, opening), tuple(events), tuple(assumptions),
-                  data_kind, source, warnings)
+                  data_kind, source, warnings, tuple(rules), actuals, balances,
+                  opening_source, ties)

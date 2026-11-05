@@ -16,32 +16,38 @@ EXAMPLE_DIR = Path(__file__).resolve().parent / "examples" / "synthetic_company"
 INSTRUCTIONS = [
     ["Treasury Cash Forecast: how to fill this template"],
     [""],
+    ["Method", "Direct cash flow: receipts and payments by type, from opening cash to closing cash."],
     ["Sign rule", "Money coming in is positive. Money going out is negative (write -5000)."],
     ["One currency", "All amounts in this file are in the currency named in 'inputs'."],
     ["Months", "Write months as YYYY-MM, for example 2026-09."],
     [""],
     ["Sheet", "What goes in it"],
-    ["inputs", "The four general inputs. currency; origin_month = the last month of actuals; "
-               "opening_cash = the cash balance at the end of origin_month; "
-               "data_kind = synthetic, actual or unspecified."],
+    ["inputs", "currency; origin_month = the last month of actuals; data_kind = synthetic, actual or "
+               "unspecified. (opening_cash is only needed here if the history has no closing_cash row.)"],
     ["lines", "One row per cash-flow line; add as many as you need. line_id is a short name without "
               "spaces that the other sheets refer to. section = operating, investing or financing. "
               "treatment = forecast (a model projects it from history), known (you supply the schedule) "
               "or assumption (only applied when you pick a scenario). At least one line per section."],
-    ["history", "Past actuals: one row per line, one column per month, ending at origin_month. "
-                "Only FORECAST lines are used by the model, and for those there must be no gaps. "
-                "Rows for known and assumption lines are optional and kept for reference only. "
-                "For forecast lines use recurring cash flow: leave out one-offs and anything you list "
-                "as a known event. 24 months are needed for the default model (ETS); 36 for SARIMA."],
-    ["known_events", "Future cash movements you already know: payroll, rent, tax, loan repayments, capex. "
+    ["history", "Your past cash-flow statement, one column per month, ending at origin_month. "
+                "First row opening_cash, then one row per line, last row closing_cash. "
+                "The plugin checks that every month ties: opening cash + all lines = closing cash. "
+                "The closing cash of origin_month becomes the opening cash of the forecast. "
+                "Forecast lines must have no gaps: 24 months are needed for the default model (ETS), "
+                "36 for SARIMA. For forecast lines, one-off items distort the model; move large "
+                "one-offs to a separate known line."],
+    ["known_events", "Future cash movements you already know: salaries, rent, tax, loan repayments, capex. "
                      "One row per payment. known_from = the month you learned about it; leave it empty "
                      "if you know it today. On a forecast line the amount is added on top of the model forecast."],
-    ["assumptions", "Optional what-if adjustments, grouped by a scenario name you choose (for example "
-                    "downside). The base forecast ignores this sheet. When you ask for a scenario, its rows "
-                    "are added to the base forecast, so you can compare base and downside cash."],
+    ["assumptions", "Optional what-if cases, grouped by a scenario name you choose (for example downside). "
+                    "percent changes the size of a line: -6 on receipts means 6% lower receipts, 4 on "
+                    "supplier payments means 4% higher payments. Type -6, not a percentage-formatted cell. "
+                    "Use amount (per month) only for a fixed sum on an assumption line. "
+                    "from_month and to_month are optional; empty means all 12 forecast months. "
+                    "The base forecast ignores this sheet."],
     [""],
-    ["What you get", "12 months: every line, the section totals, net cash movement, opening and closing "
-                     "cash. Each month is checked to the cent: opening + movement = closing."],
+    ["What you get", "An Excel cash-flow statement with your last 12 actual months and 12 forecast months: "
+                     "opening cash, every line, section totals, net cash flow and closing cash. "
+                     "Each forecast month is checked to the cent: opening + net cash flow = closing."],
 ]
 
 
@@ -52,8 +58,8 @@ def _example_rows(name, with_example):
         return rows
     if name == "inputs":        # keep the keys and explanations, clear the values
         return [rows[0]] + [[r[0], "", r[2]] for r in rows[1:]]
-    if name == "history":
-        return [["line_id", "2024-01", "2024-02"]]   # add one column per month
+    if name == "history":       # add one column per month and one row per line
+        return [["line_id", "2024-01", "2024-02"], ["opening_cash", "", ""], ["closing_cash", "", ""]]
     return rows[:1]
 
 

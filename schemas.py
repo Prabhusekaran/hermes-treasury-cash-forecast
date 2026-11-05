@@ -33,9 +33,10 @@ CASH_FORECAST_VALIDATE = {
     "name": "cash_forecast_validate",
     "description": (
         "Check a filled cash-forecast template before running it. Reports every problem in plain "
-        "language (missing months, unknown lines, wrong section or treatment), how many months of "
-        "history each forecast line has, which models can run, which scenarios exist, and treasury "
-        "warnings such as possible double counting. Always call this before cash_forecast_run and "
+        "language (missing months, unknown lines, wrong section or treatment), whether the history "
+        "ties from opening cash to closing cash every month, the opening cash the forecast will "
+        "start from, how many months of history each forecast line has, which models can run, which "
+        "scenarios exist, and treasury warnings such as possible double counting. Always call this before cash_forecast_run and "
         "show the user the problems or warnings. It does not forecast anything."
     ),
     "parameters": {"type": "object", "properties": {"input_path": _INPUT_PATH}, "required": ["input_path"]},
@@ -44,12 +45,15 @@ CASH_FORECAST_VALIDATE = {
 CASH_FORECAST_RUN = {
     "name": "cash_forecast_run",
     "description": (
-        "Run the 12-month monthly cash-flow forecast from a filled template. Forecast lines are "
+        "Run the 12-month monthly direct cash-flow forecast from a filled template. Forecast lines are "
         "projected by the chosen statistical model, known lines come from the supplied schedule, and "
-        "assumptions are applied only if a scenario is named. The engine reconciles opening cash to "
-        "closing cash to the cent for every month and stops if anything does not tie. Returns the "
-        "monthly cash bridge, the lowest-cash month, any months below zero, what was left out and why, "
-        "and the paths of four output files (forecast.json, lines.csv, cash_bridge.csv, forecast.md). "
+        "scenario assumptions (percentages of a line, or fixed amounts) are applied only if a scenario "
+        "is named. Opening cash is the closing cash of the last actual month. The engine reconciles "
+        "opening cash to closing cash to the cent for every month and stops if anything does not tie. "
+        "Returns the monthly cash bridge, the lowest-cash month, any months below zero, the effect of "
+        "the scenario per line, what was left out and why, and the output files: cash_forecast.xlsx "
+        "(the cash-flow statement, actuals then forecast) plus forecast.json, lines.csv, "
+        "cash_bridge.csv and forecast.md. "
         "Report the returned numbers exactly; never recalculate or estimate cash figures yourself."
     ),
     "parameters": {

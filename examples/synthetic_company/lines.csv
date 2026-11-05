@@ -1,12 +1,21 @@
 line_id,label,section,treatment
-customer_receipts,Customer receipts,operating,forecast
-supplier_payments,Supplier payments,operating,forecast
-operating_expenses,"Other operating expenses (travel, marketing, IT)",operating,forecast
-payroll,Payroll and social security,operating,known
+receipts_domestic,"Receipts from customers, domestic",operating,forecast
+receipts_export,"Receipts from customers, export",operating,forecast
+other_receipts,"Other operating receipts (refunds, grants)",operating,forecast
+suppliers_materials,"Payments to suppliers, materials",operating,forecast
+suppliers_services,"Payments to suppliers, services and logistics",operating,forecast
+net_salaries,Net salaries,operating,known
+payroll_taxes,Payroll taxes and social security,operating,known
 rent_and_leases,Rent and leases,operating,known
+utilities_insurance,Utilities and insurance,operating,forecast
+marketing_travel_it,"Marketing, travel and IT",operating,forecast
+vat_payments,VAT paid to the tax office (net),operating,forecast
 corporate_tax,Corporate tax instalments,operating,known
-capex,Capital expenditure,investing,known
-loan_repayments,Loan repayments and drawdowns,financing,known
-interest_paid,Interest paid,financing,known
-dividends,Dividends,financing,known
 management_reserve,Management contingency,operating,assumption
+capex,Purchase of equipment and software,investing,known
+asset_disposals,Proceeds from sale of assets,investing,known
+interest_received,Interest received,investing,known
+loan_drawdowns,Loan drawdowns,financing,known
+loan_repayments,Loan repayments,financing,known
+interest_paid,Interest paid,financing,known
+dividends,Dividends paid,financing,known

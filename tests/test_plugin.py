@@ -79,7 +79,7 @@ def test_example_reproduces_the_lab_result(company, model, scenario):
     assert result["reconciled"] is True
     assert len(result["cash_bridge"]) == 12
     assert result["opening_cash"] == "1500000.00"
-    for name in ("forecast.json", "lines.csv", "cash_bridge.csv", "forecast.md"):
+    for name in ("cash_forecast.xlsx", "forecast.json", "lines.csv", "cash_bridge.csv", "forecast.md"):
         assert any(Path(f).name == name and Path(f).is_file() for f in result["files"])
 
 
@@ -126,7 +126,10 @@ def test_csv_template_round_trip(tmp_path):
     assert checked["success"] and checked["ready_to_run"]
     assert checked["scenarios"] == ["downside", "upside"]
     assert checked["shortest_forecast_history_months"] == 36
-    assert len(checked["lines"]) == 11
+    assert len(checked["lines"]) == 20
+    assert checked["opening_cash"] == "1180000.00"
+    assert checked["opening_cash_taken_from"] == "history closing_cash row"
+    assert checked["history_ties_opening_to_closing"] == "yes"
     assert checked["models"]["sarima"]["can_run"] is True
 
 
@@ -262,20 +265,135 @@ def test_tirex_is_not_offered(company):
 
 
 # --- the shipped example company --------------------------------------------------
-def test_shipped_example_tells_the_intended_story(tmp_path):
-    base = call(tools.cash_forecast_run, input_path=str(EXAMPLE), output_dir=str(tmp_path / "b"))
-    down = call(tools.cash_forecast_run, input_path=str(EXAMPLE), scenario="downside",
-                output_dir=str(tmp_path / "d"))
+@pytest.fixture
+def example(tmp_path):
+    folder = tmp_path / "example"
+    shutil.copytree(EXAMPLE, folder)
+    return folder
+
+
+def test_shipped_example_tells_the_intended_story(example):
+    base = call(tools.cash_forecast_run, input_path=str(example))
+    down = call(tools.cash_forecast_run, input_path=str(example), scenario="downside")
     assert base["success"] and down["success"]
+    assert base["opening_cash"] == "1180000.00"
     assert base["months_below_zero"] == []
-    assert down["months_below_zero"] == ["2027-06-01", "2027-07-01"]
-    # downside: 12 x (-60,000 collections - 20,000 contingency) = -960,000
-    assert float(base["final_closing_cash"]) - float(down["final_closing_cash"]) == pytest.approx(960000.0)
+    assert base["lowest_closing_cash"]["month"] == "2026-11-01"        # the equipment purchase
+    assert down["months_below_zero"] == ["2027-07-01", "2027-09-01"]
     # the refinancing drawdown was agreed after the forecast date, so it is left out
     (left_out,) = base["left_out_inputs"]
-    assert left_out["line_id"] == "loan_repayments" and left_out["reason"] == "not_known_at_origin"
-    assert base["assumptions_not_applied"] == 33
+    assert left_out["line_id"] == "loan_drawdowns" and left_out["reason"] == "not_known_at_origin"
+    assert base["scenario_effect_by_line"] == {}
     assert base["other_scenarios_available"] == ["downside", "upside"]
+
+
+def test_percent_assumptions_are_a_percentage_of_the_base_line(example):
+    from decimal import Decimal
+    base = call(tools.cash_forecast_run, input_path=str(example))
+    down = call(tools.cash_forecast_run, input_path=str(example), scenario="downside")
+    def lines(result):
+        path = next(f for f in result["files"] if f.endswith("lines.csv"))
+        with open(path, newline="", encoding="utf-8") as file:
+            return {(r["month"], r["line_id"]): r for r in csv.DictReader(file)}
+    b, d = lines(base), lines(down)
+    for (month, line_id), row in d.items():
+        before = Decimal(b[(month, line_id)]["point"])
+        overlay = Decimal(row["assumption_overlay"])
+        if line_id == "receipts_domestic":
+            assert overlay == (before * Decimal("-4") / 100).quantize(Decimal("0.01"))
+        elif line_id == "receipts_export":
+            assert overlay == (before * Decimal("-8") / 100).quantize(Decimal("0.01"))
+        elif line_id == "suppliers_materials":      # +4% from January 2027 only: payments get larger
+            expected = (before * Decimal("4") / 100).quantize(Decimal("0.01")) if month >= "2027-01" else 0
+            assert overlay == expected and overlay <= 0
+        elif line_id == "management_reserve":
+            assert overlay == Decimal("-20000.00")
+        else:
+            assert overlay == 0
+        assert Decimal(row["point"]) == before + overlay
+    effect = down["scenario_effect_by_line"]
+    assert Decimal(base["final_closing_cash"]) + Decimal(effect["total_effect_on_final_closing_cash"]) \
+        == Decimal(down["final_closing_cash"])
+
+
+def test_scenario_does_not_change_the_base_model_forecast(example):
+    base = call(tools.cash_forecast_run, input_path=str(example))
+    up = call(tools.cash_forecast_run, input_path=str(example), scenario="upside")
+    def base_points(result):
+        path = next(f for f in result["files"] if f.endswith("lines.csv"))
+        with open(path, newline="", encoding="utf-8") as file:
+            return [(r["month"], r["line_id"], r["base_point"], r["known_overlay"]) for r in csv.DictReader(file)]
+    assert base_points(base) == base_points(up)
+
+
+def test_opening_cash_comes_from_the_closing_cash_row(example):
+    def change(rows):
+        rows[-1][-1] = "1000000"
+        return rows
+    edit(example, "history", change)
+    result = call(tools.cash_forecast_validate, input_path=str(example))
+    assert result["opening_cash"] == "1000000.00"
+    assert result["history_ties_opening_to_closing"] == "no, see warnings"
+    assert any("does not tie" in w and "2026-09" in w for w in result["warnings"])
+
+
+def test_conflicting_opening_cash_is_refused(example):
+    edit(example, "inputs", lambda rows: rows + [["opening_cash", "5", ""]])
+    assert "differs" in problems_for(example)
+
+
+def test_opening_cash_is_required_somewhere(example):
+    edit(example, "history", lambda rows: [r for r in rows if r[0] != "closing_cash"])
+    assert "No opening cash" in problems_for(example)
+
+
+def test_history_break_between_months_is_reported(example):
+    def change(rows):
+        rows[1][5] = str(float(rows[1][5]) + 1000)       # an opening_cash value
+        return rows
+    edit(example, "history", change)
+    result = call(tools.cash_forecast_validate, input_path=str(example))
+    assert result["success"] and any("opening differs" in w for w in result["warnings"])
+
+
+@pytest.mark.parametrize("row,message", [
+    (["downside", "management_reserve", "5", "", "", "", ""], "nothing to take"),
+    (["downside", "receipts_export", "5", "100", "", "", ""], "either 'percent' or 'amount'"),
+    (["downside", "receipts_export", "", "", "", "", ""], "either 'percent' or 'amount'"),
+    (["downside", "receipts_export", "250", "", "", "", ""], "outside -100 to 100"),
+    (["downside", "receipts_export", "5", "", "2027-05", "2027-01", ""], "to_month is before from_month"),
+    (["downside", "no_such_line", "5", "", "", "", ""], "not in the lines table"),
+])
+def test_bad_assumption_rows_are_explained(example, row, message):
+    edit(example, "assumptions", lambda rows: rows + [row])
+    assert message in problems_for(example)
+
+
+def test_percent_sign_and_decimal_comma_are_read(example):
+    edit(example, "assumptions", lambda rows: rows + [["mild", "receipts_export", "-2,5 %", "", "", "", ""]])
+    result = call(tools.cash_forecast_run, input_path=str(example), scenario="mild")
+    assert result["success"], result
+    assert float(result["scenario_effect_by_line"]["receipts_export"]) < 0
+
+
+def test_excel_statement_runs_from_actuals_into_the_forecast(example):
+    from openpyxl import load_workbook
+    result = call(tools.cash_forecast_run, input_path=str(example), scenario="downside")
+    path = next(f for f in result["files"] if f.endswith("cash_forecast.xlsx"))
+    sheet = load_workbook(path)["Cash forecast"]
+    rows = {row[0]: row for row in sheet.iter_rows(values_only=True) if row[0]}
+    months, kinds = rows["Cash-flow line"][2:], list(sheet.iter_rows(min_row=5, max_row=5, values_only=True))[0][2:]
+    assert len(months) == 24 and list(kinds) == ["Actual"] * 12 + ["Forecast"] * 12
+    opening, net, closing = rows["Opening cash"][2:], rows["Net cash flow"][2:], rows["Closing cash"][2:]
+    for i in range(24):
+        assert opening[i] + net[i] == pytest.approx(closing[i], abs=0.005)
+        if i:
+            assert opening[i] == pytest.approx(closing[i - 1], abs=0.005)
+    assert closing[11] == 1180000 and opening[12] == 1180000
+    assert closing[-1] == pytest.approx(float(result["final_closing_cash"]))
+    sections = [rows[f"Net cash from {s} activities"][2:] for s in ("operating", "investing", "financing")]
+    for i in range(24):
+        assert sum(s[i] for s in sections) == pytest.approx(net[i], abs=0.005)
 
 
 def test_ids_are_generated_when_the_template_has_no_id_columns():
@@ -284,9 +402,17 @@ def test_ids_are_generated_when_the_template_has_no_id_columns():
     assert all("_row" in e.event_id for e in inputs.known_events)
 
 
-def test_history_of_known_lines_is_accepted_but_not_used(tmp_path):
+def test_only_forecast_lines_reach_the_model_but_all_history_is_kept():
     inputs = loader.load_inputs(EXAMPLE)
-    assert {row.line_id for row in inputs.history} == {"customer_receipts", "supplier_payments", "operating_expenses"}
+    forecast_lines = {l.line_id for l in inputs.schema.lines if l.treatment == "forecast"}
+    assert {row.line_id for row in inputs.history} == forecast_lines and len(forecast_lines) == 8
+    assert len(inputs.actuals) == 20
+
+
+def test_lab_layout_without_balance_rows_still_runs_with_a_notice(company):
+    result = call(tools.cash_forecast_validate, input_path=str(company))
+    assert result["success"] and result["opening_cash_taken_from"] == "inputs"
+    assert result["history_ties_opening_to_closing"] == "not checked"
 
 
 def test_old_settings_name_is_still_read(company):
@@ -294,7 +420,7 @@ def test_old_settings_name_is_still_read(company):
     assert call(tools.cash_forecast_validate, input_path=str(company))["success"]
 
 
-def test_example_files_match_the_generator(tmp_path):
+def test_example_files_match_the_generator():
     import runpy
     before = {p.name: p.read_bytes() for p in EXAMPLE.glob("*.csv")}
     runpy.run_path(str(ROOT / "examples" / "build_example.py"), run_name="__main__")

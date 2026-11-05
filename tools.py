@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .engine.cash_flow_orchestration import run_cash_flow, write_outputs
+from .engine.cash_flow_orchestration import write_outputs
 from .engine.cash_flow_schema import HORIZON
 from .engine.evaluate import MODEL_REGISTRY
 from .loader import TemplateError, load_inputs
+from .scenarios import run_with_scenario
+from .statement_xlsx import write_statement
 from .template import write_template
 
 DEFAULT_MODEL = "ets"
@@ -66,7 +68,10 @@ def _overview(inputs):
         "currency": inputs.schema.currency,
         "data_kind": inputs.data_kind,
         "origin_month": inputs.origin_month.isoformat(),
-        "opening_cash": str(inputs.opening_cash.amount),
+        "opening_cash": f"{inputs.opening_cash.amount:.2f}",
+        "opening_cash_taken_from": inputs.opening_cash_source,
+        "history_ties_opening_to_closing": {True: "yes", False: "no, see warnings",
+                                            None: "not checked"}[inputs.history_ties],
         "lines": [{"line_id": l.line_id, "label": l.label, "section": l.section,
                    "treatment": l.treatment,
                    **({"history_months": months.get(l.line_id, 0)} if l.treatment == "forecast" else {})}
@@ -96,8 +101,7 @@ def _check_request(inputs, model, scenario):
 
 def _run(inputs, model, scenario):
     try:
-        return run_cash_flow(**inputs.engine_kwargs(), scenario_id=scenario or None,
-                             model_name=model, data_kind=inputs.data_kind), None
+        return run_with_scenario(inputs, model, scenario), None
     except (ImportError, OSError) as exc:
         if model == "chronos_2":
             return None, ("Chronos-2 is not available on this machine. Install the optional package "
@@ -127,6 +131,19 @@ def _summary(run):
     }
 
 
+def _scenario_effect(run):
+    """Total 12-month effect of the chosen scenario on each line it touches."""
+    totals = {}
+    for month in run.statement.months:
+        for line in month.lines:
+            if line.assumption_overlay:
+                totals[line.line_id] = totals.get(line.line_id, 0) + line.assumption_overlay
+    effect = {line_id: str(amount) for line_id, amount in totals.items()}
+    if effect:
+        effect["total_effect_on_final_closing_cash"] = str(sum(totals.values()))
+    return effect
+
+
 # --- handlers -----------------------------------------------------------------
 def cash_forecast_template(args: dict, **kwargs) -> str:
     try:
@@ -141,6 +158,8 @@ def cash_forecast_template(args: dict, **kwargs) -> str:
                         else "empty template",
             "next_step": "Fill the five tables, then call cash_forecast_validate with this path.",
             "tables": ["inputs", "lines", "history", "known_events", "assumptions"],
+            "layout": "history is a direct cash-flow statement: opening_cash row, one row per line, "
+                      "closing_cash row. assumptions are percentages (or fixed amounts) per scenario.",
         })
     except TemplateError as exc:
         return _fail("The template could not be written.", exc.problems)
@@ -186,7 +205,11 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
         default_dir = (source if source.is_dir() else source.parent) / "cash_forecast_output" / \
             f"{inputs.origin_month:%Y-%m}_{model}_{scenario or 'base'}"
         output_dir = Path(str(args.get("output_dir") or default_dir)).expanduser()
-        files = write_outputs(run, output_dir)
+        files = list(write_outputs(run, output_dir))
+        try:
+            files.insert(0, write_statement(output_dir / "cash_forecast.xlsx", run, inputs, inputs.warnings))
+        except ImportError:
+            inputs.warnings.append("The Excel statement was not written because 'openpyxl' is not installed.")
         return _reply({
             "success": True,
             "model": model, "scenario": scenario or None, "data_kind": inputs.data_kind,
@@ -199,8 +222,7 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             "left_out_inputs": [{"kind": d.kind, "id": d.input_id, "line_id": d.line_id, "reason": d.reason}
                                 for d in run.statement.excluded_inputs
                                 if d.reason != "scenario_not_selected"],
-            "assumptions_not_applied": sum(d.reason == "scenario_not_selected"
-                                           for d in run.statement.excluded_inputs),
+            "scenario_effect_by_line": _scenario_effect(run),
             "other_scenarios_available": [s for s in inputs.scenarios if s != scenario],
             "warnings": inputs.warnings,
             "limits": ["Uncertainty ranges exist per line only (Chronos); there is no range for closing cash.",

@@ -1,5 +1,4 @@
 key,value,explanation
 currency,EUR,Three-letter currency code. One currency per file.
 origin_month,2026-09,The last month of actuals. The forecast covers the 12 months after it.
-opening_cash,650000,Cash balance at the end of origin_month.
 data_kind,synthetic,"synthetic = made-up data, actual = real company data, unspecified = not stated."
