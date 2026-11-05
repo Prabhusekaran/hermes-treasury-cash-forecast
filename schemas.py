@@ -58,7 +58,9 @@ CASH_FORECAST_RUN = {
         "the output: cash_forecast.xlsx (a summary, a plain-language page on how the forecast is "
         "built, and one cash-flow statement per scenario, actuals then forecast) and an audit folder "
         "per scenario. "
-        "Report the returned numbers exactly; never recalculate or estimate cash figures yourself."
+        "Report the returned numbers exactly; never recalculate or estimate cash figures yourself. "
+        "If the tool says a library cannot be loaded, pass on its instruction to restart Hermes; do not "
+        "pip install anything and do not switch model or file format unless the user asks for that."
     ),
     "parameters": {
         "type": "object",

@@ -167,8 +167,10 @@ def _read_workbook(path):
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
-        raise TemplateError(["Reading Excel files needs the 'openpyxl' package. "
-                             "Install it, or save the five sheets as CSV files in one folder."]) from exc
+        raise TemplateError(["Hermes cannot load 'openpyxl' (reading Excel files) in this session. The library "
+                             "is installed with the plugin, but a Hermes process that was already running only "
+                             "sees it after a restart: 'hermes gateway restart', or close and reopen the Hermes "
+                             "CLI. Do not 'pip install' it."]) from exc
     _check_size(path)
     book = load_workbook(path, read_only=True, data_only=True)
     try:

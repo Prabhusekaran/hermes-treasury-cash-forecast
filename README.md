@@ -53,6 +53,20 @@ A bundled skill, `treasury-cash-forecast:cash-forecast-mapping`, guides Hermes
 through mapping your own spreadsheet into the template. The mapping is shown to
 you for confirmation before anything runs.
 
+## Install
+
+```
+hermes plugins install Prabhusekaran/hermes-treasury-cash-forecast
+hermes plugins enable treasury-cash-forecast
+hermes gateway restart
+```
+
+Hermes installs the plugin's two libraries (`statsmodels`, `openpyxl`) with it.
+A Hermes process that was already running only sees new libraries after a
+restart, which is what the third line does. If you only use the Hermes CLI,
+close and reopen it instead. If the plugin ever reports that a library cannot
+be loaded, restart Hermes; do not `pip install` it.
+
 ## Try it
 
 ```

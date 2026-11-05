@@ -654,6 +654,31 @@ def test_excel_template_has_the_reminder_and_dropdowns(tmp_path):
     assert blank["known_events"]["A1"].value == "line_id" and blank["known_events"].max_row == 1
 
 
+# --- libraries not visible to a Hermes process that was not restarted ----------------------
+def test_missing_model_library_asks_for_a_restart_and_does_not_fall_back(example, monkeypatch):
+    monkeypatch.setattr(tools, "_missing_libraries", lambda: ["statsmodels"])
+    import sys
+    monkeypatch.setitem(sys.modules, "statsmodels.tsa.holtwinters", None)        # importing it now fails
+    checked = call(tools.cash_forecast_validate, input_path=str(example))
+    assert checked["success"] and checked["ready_to_run"] is False
+    assert checked["libraries_missing_in_this_session"] == ["statsmodels"]
+    assert "hermes gateway restart" in checked["warnings"][0] and "Stop" in checked["next_step"]
+    result = call(tools.cash_forecast_run, input_path=str(example))
+    assert result["success"] is False
+    assert "hermes gateway restart" in result["error"] and "pip install" in result["error"]
+    assert not (example / "cash_forecast_output").exists()
+
+
+def test_missing_excel_library_stops_before_anything_is_written(example, tmp_path, monkeypatch):
+    monkeypatch.setattr(tools, "_missing_libraries", lambda: ["openpyxl"])
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path / "t"), format="xlsx")
+    assert made["success"] is False and "hermes gateway restart" in made["error"]
+    result = call(tools.cash_forecast_run, input_path=str(example))
+    assert result["success"] is False and "openpyxl" in result["error"]
+    assert not (example / "cash_forecast_output").exists()
+    assert call(tools.cash_forecast_template, output_dir=str(tmp_path / "c"), format="csv")["success"]
+
+
 # --- comparison and robustness -----------------------------------------------------------
 def test_compare_runs_all_built_in_models(example):
     result = call(tools.cash_forecast_compare, input_path=str(example), scenario="downside")

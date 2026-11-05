@@ -6,6 +6,7 @@ Handlers never raise: every failure comes back as {"success": false, ...}.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import warnings
 from pathlib import Path
@@ -32,6 +33,31 @@ MODELS = {
                  "package and the model already downloaded on this machine.",
 }
 SIMPLE_MODELS = ("ets", "sarima", "baseline", "seasonal_drift", "seasonal_naive", "previous_month")
+
+
+LIBRARIES = {"statsmodels": "the ETS and SARIMA models", "openpyxl": "reading and writing Excel files"}
+RESTART_HINT = ("The plugin's libraries are installed together with the plugin, but a Hermes process that was "
+                "already running only sees them after a restart. Ask the user to restart Hermes "
+                "('hermes gateway restart', or close and reopen the Hermes CLI) and try again. Do not "
+                "'pip install' anything, and do not switch to another model or file format on your own: "
+                "that changes the figures and the output the user asked for.")
+
+
+def _missing_libraries():
+    missing = []
+    for name in LIBRARIES:
+        try:
+            found = importlib.util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            missing.append(name)
+    return missing
+
+
+def _library_problem(missing):
+    needs = "; ".join(f"'{name}' ({LIBRARIES[name]})" for name in missing)
+    return f"Hermes cannot load {needs} in this session. {RESTART_HINT}"
 
 
 def _reply(payload):
@@ -150,6 +176,9 @@ def _run(inputs, model, scenarios):
             return None, ("Chronos-2 is not available on this machine. Install the optional package "
                           "'chronos-forecasting' and download 'amazon/chronos-2' once, or use model 'ets'. "
                           f"({type(exc).__name__})")
+        missing = _missing_libraries()
+        if missing:
+            return None, _library_problem(missing)
         return None, f"Model '{model}' could not be loaded: {exc}"
     except Exception as exc:   # engine validation, model failure: report, never guess
         return None, f"The forecast stopped: {exc}"
@@ -200,8 +229,10 @@ def cash_forecast_template(args: dict, **kwargs) -> str:
         output_dir = (args.get("output_dir") or "").strip()
         if not output_dir:
             return _fail("output_dir is required: the folder where the template should be saved.")
-        path = write_template(output_dir, (args.get("format") or "xlsx").lower(),
-                              bool(args.get("with_example", True)))
+        file_format = (args.get("format") or "xlsx").lower()
+        if file_format == "xlsx" and "openpyxl" in _missing_libraries():
+            return _fail(_library_problem(["openpyxl"]))
+        path = write_template(output_dir, file_format, bool(args.get("with_example", True)))
         return _reply({
             "success": True, "path": str(path),
             "contains": "synthetic example company (made-up data)" if args.get("with_example", True)
@@ -231,12 +262,17 @@ def cash_forecast_validate(args: dict, **kwargs) -> str:
                          [f"inputs: model '{inputs.model}' is not available. Choose one of: {', '.join(MODELS)}, "
                           "or leave it empty for ets."], ready_to_run=False)
         ready, shortest = _model_readiness(inputs)
+        missing = _missing_libraries()
+        if missing:
+            inputs.warnings.insert(0, _library_problem(missing))
         return _reply({
-            "success": True, "ready_to_run": True, **_overview(inputs),
+            "success": True, "ready_to_run": not missing,
+            "libraries_missing_in_this_session": missing, **_overview(inputs),
             "shortest_forecast_history_months": shortest,
             "models": {name: {**ready[name], "about": MODELS[name]} for name in MODELS},
             "warnings": inputs.warnings,
-            "next_step": "Call cash_forecast_run. Show the user the warnings first.",
+            "next_step": ("Stop and tell the user to restart Hermes (see the first warning)." if missing else
+                          "Call cash_forecast_run. Show the user the warnings first."),
         })
     except TemplateError as exc:
         return _fail("The input has problems. Nothing was forecast.", exc.problems, ready_to_run=False)
@@ -250,6 +286,8 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
         if not path:
             return _fail("input_path is required: the .xlsx workbook or the folder of CSV files.")
         inputs = load_inputs(path)
+        if "openpyxl" in _missing_libraries():
+            return _fail(_library_problem(["openpyxl"]))       # the Excel result could not be written
         model = (args.get("model") or inputs.model or DEFAULT_MODEL).strip().lower()
         scenarios = _wanted_scenarios(args, inputs)
         problems = _check_request(inputs, model, scenarios)
