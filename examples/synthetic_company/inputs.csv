@@ -2,3 +2,5 @@ key,value,explanation
 currency,EUR,Three-letter currency code. One currency per file.
 origin_month,2026-09,The last month of actuals. The forecast covers the 12 months after it.
 data_kind,synthetic,"synthetic = made-up data, actual = real company data, unspecified = not stated."
+model,ets,"Optional. ets (default), sarima, baseline, seasonal_drift, seasonal_naive, previous_month or chronos_2. Empty = ets."
+minimum_cash,250000,Optional. The cash balance you do not want to fall below. The result lists the months below it.

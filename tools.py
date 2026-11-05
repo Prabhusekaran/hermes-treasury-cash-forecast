@@ -94,6 +94,8 @@ def _overview(inputs):
         "opening_cash_taken_from": inputs.opening_cash_source,
         "history_ties_opening_to_closing": {True: "yes", False: "no, see warnings",
                                             None: "not checked"}[inputs.history_ties],
+        "model_chosen_in_inputs": inputs.model,
+        "minimum_cash": None if inputs.minimum_cash is None else f"{inputs.minimum_cash:.2f}",
         "lines": lines,
         "known_amounts_in_the_next_12_months": sum(l.get("known_amounts", 0) for l in lines),
         "scenarios": inputs.scenarios,
@@ -166,14 +168,18 @@ def _scenario_effect(run):
     return effect
 
 
-def _summary(run):
+def _summary(run, minimum_cash=None):
     months = run.statement.months
     low = min(months, key=lambda m: m.closing_cash)
-    return {
+    summary = {
         "final_closing_cash": str(months[-1].closing_cash),
         "lowest_closing_cash": {"month": low.month.isoformat(), "amount": str(low.closing_cash)},
         "months_below_zero": [m.month.isoformat() for m in months if m.closing_cash < 0],
     }
+    if minimum_cash is not None:
+        summary["months_below_minimum_cash"] = [m.month.isoformat() for m in months
+                                                if float(m.closing_cash) < minimum_cash]
+    return summary
 
 
 def _bridge(run):
@@ -220,6 +226,10 @@ def cash_forecast_validate(args: dict, **kwargs) -> str:
         if not path:
             return _fail("input_path is required: the .xlsx workbook or the folder of CSV files.")
         inputs = load_inputs(path)
+        if inputs.model and inputs.model not in MODELS:
+            return _fail("The input has problems. Nothing was forecast.",
+                         [f"inputs: model '{inputs.model}' is not available. Choose one of: {', '.join(MODELS)}, "
+                          "or leave it empty for ets."], ready_to_run=False)
         ready, shortest = _model_readiness(inputs)
         return _reply({
             "success": True, "ready_to_run": True, **_overview(inputs),
@@ -239,8 +249,8 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
         path = (args.get("input_path") or "").strip()
         if not path:
             return _fail("input_path is required: the .xlsx workbook or the folder of CSV files.")
-        model = (args.get("model") or DEFAULT_MODEL).strip().lower()
         inputs = load_inputs(path)
+        model = (args.get("model") or inputs.model or DEFAULT_MODEL).strip().lower()
         scenarios = _wanted_scenarios(args, inputs)
         problems = _check_request(inputs, model, scenarios)
         if problems:
@@ -272,7 +282,8 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             "reconciled": True,
             "reconciliation": "Every month, in every scenario: operating + investing + financing = net cash "
                               "flow; opening + net cash flow = closing; closing = next opening. Checked to the cent.",
-            "scenarios": {name: {**_summary(run),
+            "minimum_cash": None if inputs.minimum_cash is None else f"{inputs.minimum_cash:.2f}",
+            "scenarios": {name: {**_summary(run, inputs.minimum_cash),
                                  **({"effect_by_line": _scenario_effect(run)} if name != BASE else {})}
                           for name, run in runs.items()},
             "closing_cash_by_month": [{"month": month, **{name: str(run.statement.months[i].closing_cash)
@@ -282,6 +293,7 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             "model_runs": list(base.model_audit),
             "model_notes": model_notes,
             "model_figure_replaced_by_known_amount": base.inputs["model_forecast_replaced_by_known_amount"],
+            "model_continued_from_known_amounts": base.inputs["model_continued_from_known_amounts"],
             "left_out_inputs": list({d.input_id: {"kind": d.kind, "id": d.input_id, "line_id": d.line_id,
                                                   "reason": d.reason}
                                      for run in runs.values() for d in run.statement.excluded_inputs

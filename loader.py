@@ -3,8 +3,8 @@
 The template has four tables. The same names are used for Excel sheets and for
 CSV files (inputs.csv, history.csv, ...):
 
-  inputs        key / value: currency, origin_month, data_kind (opening_cash only
-                if the history has no closing_cash row)
+  inputs        key / value: currency, origin_month, data_kind; optional model and
+                minimum_cash (opening_cash only if the history has no closing_cash row)
   history       a direct cash-flow statement: an opening_cash row, one row per
                 line, a closing_cash row. Columns: line_id, label, section,
                 treatment, then one column per month
@@ -14,6 +14,9 @@ CSV files (inputs.csv, history.csv, ...):
 A line is either "forecast" (a model projects it) or "known" (the schedule is
 used). On a forecast line a known amount either replaces the model figure for
 that month (effect = replace, the default) or is added to it (effect = on top).
+
+A row whose first cell starts with "NOTE" above a table's headings is skipped,
+so a sheet can carry a reminder for the user.
 
 Older layouts are still read: a separate "lines" table (line_id, label, section,
 treatment), tables called "settings" and "assumptions", an
@@ -86,6 +89,8 @@ class Inputs:
     warnings: list = field(default_factory=list)
     rules: tuple = ()                                # ScenarioRule rows (percent or amount)
     replace_ids: frozenset = frozenset()             # known events that replace the model figure
+    model: str | None = None                         # optional choice made in the inputs sheet
+    minimum_cash: float | None = None                # optional liquidity floor for the summary
     actuals: dict = field(default_factory=dict)      # line_id -> {month: amount}, every line supplied
     balances: dict = field(default_factory=dict)     # "opening_cash"/"closing_cash" -> {month: amount}
     opening_cash_source: str = "inputs"
@@ -122,6 +127,8 @@ def _rows_from_grid(grid):
     """First non-empty row is the header; later rows become dicts. Blank rows are skipped."""
     grid = [[_clean(c) for c in row] for row in grid]
     grid = [row for row in grid if any(c != "" for c in row)]
+    while grid and isinstance(grid[0][0], str) and grid[0][0].upper().startswith("NOTE"):
+        grid = grid[1:]         # a reminder for the user, not data
     if not grid:
         return [], []
     header = [_header_text(c) for c in grid[0]]
@@ -285,6 +292,13 @@ def load_inputs(input_path):
             opening = parse_amount(settings["opening_cash"])
         except ValueError:
             problems.append("inputs: 'opening_cash' must be a number: the cash balance at the end of origin_month.")
+    chosen_model = str(settings.get("model", "") or "").strip().lower() or None
+    minimum_cash = None
+    if settings.get("minimum_cash", "") != "":
+        try:
+            minimum_cash = parse_amount(settings["minimum_cash"])
+        except ValueError:
+            problems.append("inputs: 'minimum_cash' must be a number (or left empty).")
     data_kind = str(settings.get("data_kind", "") or "unspecified").strip().lower()
     if data_kind not in DATA_KINDS:
         problems.append("inputs: 'data_kind' must be synthetic, actual or unspecified.")
@@ -601,5 +615,5 @@ def load_inputs(input_path):
 
     return Inputs(CashFlowSchema(currency, tuple(lines)), tuple(history), origin,
                   OpeningCash(origin, opening), tuple(events), tuple(assumptions),
-                  data_kind, source, warnings, tuple(rules), frozenset(replace_ids), actuals, balances,
-                  opening_source, ties)
+                  data_kind, source, warnings, tuple(rules), frozenset(replace_ids), chosen_model,
+                  minimum_cash, actuals, balances, opening_source, ties)

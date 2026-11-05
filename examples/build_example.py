@@ -101,6 +101,10 @@ def main():
         ["currency", "EUR", "Three-letter currency code. One currency per file."],
         ["origin_month", ym(ORIGIN), "The last month of actuals. The forecast covers the 12 months after it."],
         ["data_kind", "synthetic", "synthetic = made-up data, actual = real company data, unspecified = not stated."],
+        ["model", "ets", "Optional. ets (default), sarima, baseline, seasonal_drift, seasonal_naive, "
+                         "previous_month or chronos_2. Empty = ets."],
+        ["minimum_cash", 250_000, "Optional. The cash balance you do not want to fall below. "
+                                  "The result lists the months below it."],
     ])
     write("history.csv", ["line_id", "label", "section", "treatment"] + [ym(m) for m in months],
           [["opening_cash", "Opening cash", "", ""] + opening]
@@ -142,6 +146,8 @@ def main():
         ["downside", "management_reserve", "", -20_000, "", "", "Contingency for unplanned costs"],
         ["upside", "receipts_domestic", 3, "", "2027-01", "", "Price increase from January 2027"],
         ["upside", "receipts_export", 5, "", "2027-01", "", "New distributor from January 2027"],
+        ["with_refinancing", "loan_drawdowns", "", 1_000_000, "2027-03", "2027-03",
+         "Refinancing drawdown, if it is agreed as expected"],
     ])
 
 

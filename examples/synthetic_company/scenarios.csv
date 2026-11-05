@@ -5,3 +5,4 @@ downside,suppliers_materials,4,,2027-01,,Material prices rise from January
 downside,management_reserve,,-20000,,,Contingency for unplanned costs
 upside,receipts_domestic,3,,2027-01,,Price increase from January 2027
 upside,receipts_export,5,,2027-01,,New distributor from January 2027
+with_refinancing,loan_drawdowns,,1000000,2027-03,2027-03,"Refinancing drawdown, if it is agreed as expected"

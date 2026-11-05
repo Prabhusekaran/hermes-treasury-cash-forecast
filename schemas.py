@@ -53,9 +53,11 @@ CASH_FORECAST_RUN = {
         "are run together. Opening cash is the closing cash of the last actual month. The engine "
         "reconciles opening cash to closing cash to the cent for every month and stops if anything "
         "does not tie. Returns, per scenario, final closing cash, the lowest-cash month, any months "
-        "below zero and the effect per line; closing cash by month side by side; what was left out "
-        "and why; and the output: cash_forecast.xlsx (a summary plus one cash-flow statement per "
-        "scenario, actuals then forecast) and an audit folder per scenario. "
+        "below zero or below the user's minimum cash, and the effect per line; closing cash by month "
+        "side by side; what was left out and why (always tell the user about left-out amounts); and "
+        "the output: cash_forecast.xlsx (a summary, a plain-language page on how the forecast is "
+        "built, and one cash-flow statement per scenario, actuals then forecast) and an audit folder "
+        "per scenario. "
         "Report the returned numbers exactly; never recalculate or estimate cash figures yourself."
     ),
     "parameters": {
@@ -63,8 +65,9 @@ CASH_FORECAST_RUN = {
         "properties": {
             "input_path": _INPUT_PATH,
             "model": {"type": "string", "enum": _MODEL_NAMES,
-                      "description": "Forecasting model for the forecast lines. Default 'ets' (needs 24 months "
-                                     "of history). 'chronos_2' is optional and must already be installed."},
+                      "description": "Forecasting model for the forecast lines. Leave out to use the model "
+                                     "named in the template's inputs sheet, or 'ets' (needs 24 months of "
+                                     "history). 'chronos_2' is optional and must already be installed."},
             "scenarios": {"type": "array", "items": {"type": "string"},
                           "description": "Scenario names to run next to the base case. Leave out to run "
                                          "every scenario in the template; pass an empty list for the "

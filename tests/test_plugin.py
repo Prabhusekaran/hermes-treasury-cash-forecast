@@ -179,26 +179,29 @@ def test_every_scenario_ties_to_the_cent(example):
 # --- the shipped example ----------------------------------------------------------
 def test_shipped_example_tells_the_intended_story(example):
     result = run(example)
-    assert list(result["scenarios"]) == ["base", "downside", "upside"]
+    assert list(result["scenarios"]) == ["base", "downside", "upside", "with_refinancing"]
     base, down, up = (result["scenarios"][n] for n in ("base", "downside", "upside"))
     assert result["opening_cash"] == "1180000.00"
     assert result["opening_cash_taken_from"] == "history closing_cash row"
     assert base["months_below_zero"] == [] and up["months_below_zero"] == []
     assert base["lowest_closing_cash"]["month"] == "2026-11-01"        # the equipment purchase
-    assert down["months_below_zero"] == ["2027-09-01"]
+    assert down["months_below_zero"] == ["2027-07-01", "2027-08-01", "2027-09-01"]
+    assert down["months_below_minimum_cash"] == ["2027-06-01", "2027-07-01", "2027-08-01", "2027-09-01"]
+    assert base["months_below_minimum_cash"] == [] and result["minimum_cash"] == "250000.00"
     assert Decimal(up["final_closing_cash"]) > Decimal(base["final_closing_cash"]) > Decimal(down["final_closing_cash"])
     # the refinancing drawdown was agreed after the forecast date, so it is left out
     (left_out,) = result["left_out_inputs"]
     assert left_out["line_id"] == "loan_drawdowns" and left_out["reason"] == "not_known_at_origin"
     assert len(result["closing_cash_by_month"]) == 12
-    assert set(result["closing_cash_by_month"][0]) == {"month", "base", "downside", "upside"}
+    assert set(result["closing_cash_by_month"][0]) == {"month", "base", "downside", "upside", "with_refinancing"}
 
 
 def test_template_round_trip_csv(tmp_path):
     made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="csv")
     checked = call(tools.cash_forecast_validate, input_path=made["path"])
     assert checked["success"] and checked["ready_to_run"]
-    assert checked["scenarios"] == ["downside", "upside"]
+    assert checked["scenarios"] == ["downside", "upside", "with_refinancing"]
+    assert checked["model_chosen_in_inputs"] == "ets" and checked["minimum_cash"] == "250000.00"
     assert checked["shortest_forecast_history_months"] == 36
     assert len(checked["lines"]) == 20
     assert {line["treatment"] for line in checked["lines"]} == {"forecast", "known"}
@@ -273,6 +276,33 @@ def test_unknown_effect_is_explained(example):
     assert "effect must be 'replace' or 'on top'" in problems_for(example)
 
 
+def test_model_continues_from_the_level_of_the_last_known_amount(example):
+    result = run(example)
+    rows = line_rows(result, "base")
+    path = next(f for f in result["audit_files"] if Path(f).parent.name == "base" and f.endswith("forecast.json"))
+    document = json.loads(Path(path).read_text())
+    model = next(f for f in document["inputs"]["base_forecasts"] if f["line_id"] == "net_salaries")["point"]
+    shift = Decimal("-288000.00") - Decimal(str(model[1])).quantize(CENT)      # November: known minus model
+    for index, month in enumerate(["2026-12-01", "2027-01-01", "2027-09-01"], start=2):
+        index = 11 if month == "2027-09-01" else index
+        expected = (Decimal(str(model[index])) + Decimal("-288000.00") - Decimal(str(model[1]))).quantize(CENT)
+        assert Decimal(rows[(month, "net_salaries")]["point"]) == expected
+    december = Decimal(rows[("2026-12-01", "net_salaries")]["point"])
+    assert Decimal("-290000") < december < Decimal("-288000")      # carries on, no step back to -282,658
+    assert shift < 0
+    assert {"line_id": "net_salaries", "known_months": 2, "level_shift": f"{float(Decimal('-288000') - Decimal(str(model[1]))):.2f}"} \
+        in result["model_continued_from_known_amounts"]
+
+
+def test_known_amount_in_a_later_month_does_not_move_the_other_months(example):
+    before = line_rows(run(example), "base")
+    edit(example, "known_events", lambda rows: rows + [["utilities_insurance", "2027-03", "-70000", "", "", ""]])
+    after = line_rows(run(example), "base")
+    assert after[("2027-03-01", "utilities_insurance")]["point"] == "-70000.00"
+    for month in ("2027-02-01", "2027-04-01"):
+        assert after[(month, "utilities_insurance")] == before[(month, "utilities_insurance")]
+
+
 # --- scenarios in percent -----------------------------------------------------------
 def test_percent_is_taken_from_the_base_case_figure(example):
     result = run(example)
@@ -307,7 +337,8 @@ def test_scenarios_do_not_change_the_model_or_the_schedule(example):
 
 def test_only_the_scenarios_asked_for_are_run(example):
     result = run(example, scenarios=["upside"])
-    assert list(result["scenarios"]) == ["base", "upside"] and result["scenarios_not_run"] == ["downside"]
+    assert list(result["scenarios"]) == ["base", "upside"]
+    assert result["scenarios_not_run"] == ["downside", "with_refinancing"]
     assert list(run(example, scenarios=[])["scenarios"]) == ["base"]
     assert list(run(example, scenario="downside")["scenarios"]) == ["base", "downside"]
 
@@ -334,6 +365,33 @@ def test_percent_sign_and_decimal_comma_are_read(example):
     edit(example, "scenarios", lambda rows: rows + [["mild", "receipts_export", "-2,5 %", "", "", "", ""]])
     result = run(example, scenarios=["mild"])
     assert Decimal(result["scenarios"]["mild"]["effect_by_line"]["receipts_export"]) < 0
+
+
+def test_a_left_out_amount_can_be_added_back_as_a_scenario(example):
+    result = run(example)
+    for row in result["closing_cash_by_month"]:
+        difference = Decimal(row["with_refinancing"]) - Decimal(row["base"])
+        assert difference == (Decimal("1000000.00") if row["month"] >= "2027-03" else 0)
+
+
+# --- model and minimum cash from the inputs sheet -------------------------------------
+def test_model_can_be_chosen_in_the_inputs_sheet(example):
+    edit(example, "inputs", lambda rows: [[r[0], "seasonal_naive", r[2]] if r[0] == "model" else r for r in rows])
+    assert run(example)["model"] == "seasonal_naive"
+    assert run(example, model="baseline")["model"] == "baseline"       # asking Hermes wins
+
+
+def test_unknown_model_in_the_inputs_sheet_is_refused(example):
+    edit(example, "inputs", lambda rows: [[r[0], "prophet", r[2]] if r[0] == "model" else r for r in rows])
+    assert "model 'prophet' is not available" in problems_for(example)
+    assert call(tools.cash_forecast_run, input_path=str(example))["success"] is False
+
+
+def test_minimum_cash_is_optional(example):
+    edit(example, "inputs", lambda rows: [r for r in rows if r[0] not in ("minimum_cash", "model")])
+    result = run(example)
+    assert result["minimum_cash"] is None and result["model"] == "ets"
+    assert "months_below_minimum_cash" not in result["scenarios"]["base"]
 
 
 # --- opening and closing cash in the history ----------------------------------------
@@ -509,13 +567,19 @@ def test_workbook_has_a_summary_and_one_statement_per_scenario(example):
     from openpyxl import load_workbook
     result = run(example)
     book = load_workbook(result["main_file"])
-    assert book.sheetnames == ["Summary", "Base case", "downside", "upside", "Where numbers come from", "Notes"]
+    assert book.sheetnames == ["Summary", "How this is built", "Base case", "downside", "upside",
+                               "with_refinancing", "Where numbers come from", "Notes"]
     summary = {row[0]: row for row in book["Summary"].iter_rows(values_only=True) if row[0]}
     assert summary["Closing cash by month"][1:4] == ("Base case", "downside", "upside")
     for column, scenario in enumerate(("base", "downside", "upside"), start=1):
         assert summary["Final closing cash"][column] == pytest.approx(
             float(result["scenarios"][scenario]["final_closing_cash"]))
-    assert summary["Months with closing cash below zero"][1:4] == ("none", "2027-09", "none")
+    assert summary["Months with closing cash below zero"][1:4] == ("none", "2027-07 to 2027-09", "none")
+    assert summary["Months below your minimum cash of 250,000.00"][1:4] == ("none", "2027-06 to 2027-09", "none")
+    assert summary["Loan drawdowns"][1:4] == ("2027-03", 1000000, "only known after the forecast date "
+                                                                  "(known from 2026-11)")
+    how = " ".join(str(row[1]) for row in book["How this is built"].iter_rows(values_only=True) if row[1])
+    assert "ETS (exponential smoothing)" in how and "did not calculate or adjust any number" in how
 
 
 @pytest.mark.parametrize("sheet_name,scenario", [("Base case", "base"), ("downside", "downside")])
@@ -544,13 +608,50 @@ def test_statement_shows_the_mix_of_known_and_forecast_months(example):
     rows = {str(row[0].value).strip(): row for row in sheet.iter_rows() if row[0].value}
     def shading(label):
         return [cell.fill.fgColor.rgb[-6:] if cell.fill.fill_type else None for cell in rows[label][14:26]]
-    assert rows["Net salaries"][1].value == "known 2026-10 to 2026-11, then forecast"
+    assert rows["Net salaries"][1].value == "known 2026-10 to 2026-11, then forecast from that level"
     assert shading("Net salaries") == ["E2EFDA"] * 2 + [None] * 10
     assert rows["Receipts from customers, export"][1].value == "forecast, plus known on top 2027-01 to 2027-03"
     assert shading("Receipts from customers, export") == [None] * 3 + ["FCE4D6"] * 3 + [None] * 6
     assert rows["Rent and leases"][1].value == "known" and shading("Rent and leases") == ["E2EFDA"] * 12
     assert rows["Receipts from customers, domestic"][1].value == "forecast"
     assert shading("Receipts from customers, domestic") == [None] * 12
+
+
+def test_workbook_shows_cents_and_marks_scenario_changes(example):
+    from openpyxl import load_workbook
+    book = load_workbook(run(example)["main_file"])
+    sheet = book["downside"]
+    rows = {str(row[0].value).strip(): row for row in sheet.iter_rows() if row[0].value}
+    assert rows["Closing cash"][5].number_format == "#,##0.00;[Red]-#,##0.00"
+    fills = [cell.fill.fgColor.rgb[-6:] if cell.fill.fill_type else None
+             for cell in rows["Receipts from customers, domestic"][14:26]]
+    assert fills == ["E4DFEC"] * 12                                    # changed by the scenario in every month
+    materials = [cell.fill.fgColor.rgb[-6:] if cell.fill.fill_type else None
+                 for cell in rows["Payments to suppliers, materials"][14:26]]
+    assert materials == [None] * 3 + ["E4DFEC"] * 9                    # +4% from January 2027 only
+    for label in ("Net cash from operating activities", "Net cash flow"):
+        for cell in rows[label][2:14]:                                 # actual months: no float noise
+            assert round(cell.value, 2) == cell.value
+    detail = list(book["Where numbers come from"].iter_rows(values_only=True))
+    october = next(r for r in detail if r[0] == "Base case" and r[1] == "2026-10" and r[2] == "Net salaries")
+    assert october[4] == 0 and october[5] == -286500 and october[9] < 0 and "replaced" in october[10]
+
+
+def test_excel_template_has_the_reminder_and_dropdowns(tmp_path):
+    from openpyxl import load_workbook
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="xlsx")
+    book = load_workbook(made["path"])
+    assert book.sheetnames == ["instructions", "inputs", "history", "known_events", "scenarios"]
+    for name in ("known_events", "scenarios"):
+        assert str(book[name]["A1"].value).startswith("NOTE:") and book[name]["A1"].fill.fgColor.rgb[-6:] == "C00000"
+    assert book["instructions"]["A2"].value == "FIRST"
+    lists = {str(v.sqref): v.formula1 for name in ("inputs", "history", "known_events")
+             for v in book[name].data_validations.dataValidation}
+    assert '"forecast,known"' in lists.values() and '"replace,on top"' in lists.values()
+    assert '"operating,investing,financing"' in lists.values() and '"synthetic,actual,unspecified"' in lists.values()
+    empty = call(tools.cash_forecast_template, output_dir=str(tmp_path / "e"), format="xlsx", with_example=False)
+    blank = load_workbook(empty["path"])
+    assert blank["known_events"]["A1"].value == "line_id" and blank["known_events"].max_row == 1
 
 
 # --- comparison and robustness -----------------------------------------------------------

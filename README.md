@@ -25,7 +25,10 @@ Principle: **forecast what needs forecasting; supply what is already known.**
 
 A line can mix the two. On a forecast line, a known amount for a month either
 **replaces** the model's figure (the next payroll run is already approved) or
-comes **on top** of it (a new contract that is not in the history).
+comes **on top** of it (a new contract that is not in the history). When your
+amounts cover the first months of the forecast, the later months keep the
+model's pattern but start from the level of your last amount, so the line does
+not fall back to its old level.
 
 For each of the 12 months, in every scenario, the engine enforces:
 
@@ -59,11 +62,13 @@ Hermes: (cash_forecast_template -> cash_forecast_validate -> cash_forecast_run)
         Base case: closing cash stays positive; the low point is EUR 1,002,554.06 in
         November 2026, the month of the equipment purchase.
         Downside (domestic receipts -4%, export receipts -8%, material prices +4%
-        from January, a 20,000 monthly contingency): closing cash ends the year
-        below zero, at EUR -54,745.27 in September 2027.
-        Upside: EUR 2,126,736.61 at year end.
+        from January, a 20,000 monthly contingency): closing cash is below your
+        minimum of EUR 250,000 from June 2027 and below zero from July, ending
+        at EUR -149,564.86.
+        Upside: EUR 2,031,917.02 at year end.
         One item was left out: the EUR 1,000,000 refinancing drawdown, because it
-        was only agreed after the forecast date.
+        was only agreed after the forecast date. The "with_refinancing" scenario
+        shows the forecast with it: EUR 2,444,534.20 at year end.
 ```
 
 The example is a made-up manufacturer with 20 lines (`examples/synthetic_company`,
@@ -76,7 +81,7 @@ Four tables: sheets in one `.xlsx`, or four `.csv` files in one folder.
 
 | Table | Columns |
 |---|---|
-| `inputs` | `key`, `value`: `currency`, `origin_month` (last month of actuals), `data_kind` (`synthetic`, `actual`, `unspecified`) |
+| `inputs` | `key`, `value`: `currency`, `origin_month` (last month of actuals), `data_kind` (`synthetic`, `actual`, `unspecified`); optional `model` and `minimum_cash` |
 | `history` | Your past cash-flow statement and the definition of every line: an `opening_cash` row, one row per line, a `closing_cash` row. Columns: `line_id`, `label`, `section` (`operating` / `investing` / `financing`), `treatment` (`forecast` / `known`), then one column per month (`2024-01`, `2024-02`, ...) |
 | `known_events` | `line_id`, `month`, `amount`, optional `effect` (`replace` / `on top`), `known_from`, `note` |
 | `scenarios` | `scenario`, `line_id`, `percent` or `amount`, optional `from_month`, `to_month`, `note` |
@@ -100,9 +105,17 @@ month. Leave `from_month` and `to_month` empty for all 12 months. Use `amount`
 for a fixed monthly sum, such as a contingency. Every scenario is run and shown
 next to the base case.
 
-**`known_from`** is the month you learned about an item. It matters when you
-forecast from a past month: an item you did not know about then is left out, so
-a back-test cannot use hindsight.
+**`known_from`** is the month you learned about an item. An amount learned
+after `origin_month` is left out of every scenario and listed on the Summary
+sheet: a forecast as of a date uses only what was known then, so a back-test
+cannot use hindsight. To see its effect anyway, add it as a scenario (the
+example does this with its refinancing drawdown).
+
+**`minimum_cash`** is the balance you do not want to fall below. The result
+lists the months below it for each scenario and shows them in red.
+
+**`model`** picks the model for the forecast lines. Leave it empty for ETS, or
+simply tell Hermes which model to use.
 
 **Keeping the sheets in step.** Each line is defined once, in `history`. A
 known line needs its future amounts in `known_events`. When you remove a line,
@@ -135,15 +148,21 @@ hidden. They come back in the result as `model_notes`.
 `cash_forecast.xlsx` is the main result:
 
 - **Summary:** closing cash by month for the base case and every scenario, the
-  lowest point, any month below zero, and what each scenario changes.
+  lowest point, any month below zero or below your minimum cash, what was left
+  out and why, and what each scenario changes.
+- **How this is built:** one page in plain language for a reader who is not
+  technical: the starting balance, what the model does, what comes from your
+  schedule, how scenarios are applied, and what the forecast does not tell you.
 - **One sheet per scenario:** a cash-flow statement from opening cash to closing
   cash, with every line, section totals and net cash flow, for your last 12
   actual months and the 12 forecast months. The Treatment column says how each
-  line was built (for example "known 2026-10 to 2026-11, then forecast"), and
-  each forecast cell is shaded by its source: model, your known amount, or
-  model plus your amount on top.
+  line was built (for example "known 2026-10 to 2026-11, then forecast from
+  that level"), and each forecast cell is shaded by its source: model, your
+  known amount, model plus your amount on top, or changed by the scenario.
+  Amounts are shown to the cent.
 - **Where numbers come from:** for every forecast figure, the model part, the
-  known part and the scenario part.
+  known part and the scenario part, and the model's own figure where your
+  known amount replaced it.
 - **Notes:** what was left out and why, and the warnings.
 
 An `audit/<scenario>/` folder holds four files per scenario: `forecast.md`

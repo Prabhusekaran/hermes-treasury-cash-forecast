@@ -71,6 +71,12 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   statement of receipts and payments, and a line-by-line mapping from an
   indirect statement needs the user's decisions, not yours.
 - One currency per template. Do not convert currencies.
+- If the user gives known amounts for the first months of a forecast line, the
+  later months start from the level of the last one. A one-off (a bonus, a
+  back-payment) must therefore go on its own known line, not into such a row.
+- An amount the user learned about after `origin_month` is left out by design.
+  Say so, and offer to add it as a scenario if they want to see its effect.
+- Ask whether the user has a minimum cash balance; if so, set `minimum_cash`.
 - The history sheet is the user's past cash-flow statement: an `opening_cash`
   row, one row per line, a `closing_cash` row. Copy their balances; never
   calculate a balance yourself. If validation says the history does not tie,

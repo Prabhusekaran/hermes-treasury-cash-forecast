@@ -5,6 +5,13 @@ The models run once. Everything after that is assembly by the engine:
 1. Base case. On a forecast line, a known amount marked "replace" takes the
    place of the model figure for that month (the model figure is set to zero and
    the known amount is added). A known amount marked "on top" is added to it.
+   When the replaced months are the first months of the forecast, the model
+   continues from their level: the later months keep the model's own pattern
+   (trend and seasonality) but are moved by the difference between the last
+   known amount and the model's figure for that month. The line therefore does
+   not fall back to the level it had before the known amounts. (Fitting the
+   model again with the known amounts as extra data points was tried and
+   rejected: a two-month step was read as a much steeper trend.)
 2. Scenarios. A percentage is converted to an amount using the base-case figure
    of that line and month (model forecast plus known schedule). Fixed amounts
    are used as given. The engine then assembles the scenario on the same base.
@@ -41,19 +48,43 @@ def _replaced_months(inputs):
     return pairs
 
 
-def _apply_replacements(forecasts, pairs):
-    adjusted = []
+def _known_amount(inputs, line_id, month):
+    return sum(float(e.amount) for e in inputs.known_events
+               if e.line_id == line_id and e.effective_month == month
+               and e.known_from_month <= inputs.origin_month)
+
+
+def _continue_from_known(inputs, forecast, lead):
+    """Keep the model's pattern after `lead` known months, moved to the level of the last one."""
+    last = lead - 1
+    known = _known_amount(inputs, forecast.line_id, add_months(inputs.origin_month, lead))
+    shift = known - forecast.point[last]
+    point = (0.0,) * lead + tuple(v + shift for v in forecast.point[lead:])
+    quantiles = {q: (0.0,) * lead + tuple(v + shift for v in values[lead:])
+                 for q, values in forecast.quantiles.items()}
+    return point, quantiles, shift
+
+
+def _apply_replacements(inputs, forecasts, pairs):
+    """Return (adjusted forecasts, [{line_id, known_months}] for lines the model continued)."""
+    adjusted, continued = [], []
     for forecast in forecasts:
         indexes = {i for line_id, i in pairs if line_id == forecast.line_id}
         if not indexes:
             adjusted.append(forecast)
             continue
-        point = tuple(0.0 if i in indexes else v for i, v in enumerate(forecast.point))
-        quantiles = {q: tuple(0.0 if i in indexes else v for i, v in enumerate(values))
-                     for q, values in forecast.quantiles.items()}
+        lead = len(indexes)
+        if indexes == set(range(lead)) and lead < HORIZON:      # the first months of the forecast
+            point, quantiles, shift = _continue_from_known(inputs, forecast, lead)
+            continued.append({"line_id": forecast.line_id, "known_months": lead,
+                              "level_shift": f"{shift:.2f}"})
+        else:
+            point = tuple(0.0 if i in indexes else v for i, v in enumerate(forecast.point))
+            quantiles = {q: tuple(0.0 if i in indexes else v for i, v in enumerate(values))
+                         for q, values in forecast.quantiles.items()}
         adjusted.append(LineForecast(forecast.line_id, forecast.origin_month, forecast.model_name,
                                      point, quantiles))
-    return tuple(adjusted)
+    return tuple(adjusted), continued
 
 
 def _scenario_assumptions(inputs, scenario, base_statement):
@@ -88,7 +119,7 @@ def run_all(inputs, model, scenarios=()):
                                 scenario_id=None, model_name=model, data_kind=inputs.data_kind)
     raw_forecasts = models_only.inputs["base_forecasts"]
     pairs = _replaced_months(inputs)
-    forecasts = _apply_replacements(raw_forecasts, pairs)
+    forecasts, continued = _apply_replacements(inputs, raw_forecasts, pairs)
     replaced = [{"line_id": line_id, "month": _month_text(add_months(inputs.origin_month, i + 1))}
                 for line_id, i in sorted(pairs)]
 
@@ -99,7 +130,8 @@ def run_all(inputs, model, scenarios=()):
         return replace(models_only, statement=statement, inputs={
             **models_only.inputs, "known_events": inputs.known_events, "assumptions": assumptions,
             "scenario_id": scenario, "base_forecasts": raw_forecasts,
-            "model_forecast_replaced_by_known_amount": replaced})
+            "model_forecast_replaced_by_known_amount": replaced,
+            "model_continued_from_known_amounts": continued})
 
     runs = {BASE: assemble(None, tuple(inputs.assumptions))}
     for scenario in scenarios:
