@@ -25,6 +25,49 @@ def _title(name):
     return "Base case" if name == BASE else name
 
 
+def _ranges(indexes, months):
+    """[0, 1, 5] -> '2026-10 to 2026-11, 2027-03'."""
+    groups, indexes = [], sorted(indexes)
+    for i in indexes:
+        if groups and i == groups[-1][1] + 1:
+            groups[-1][1] = i
+        else:
+            groups.append([i, i])
+    return ", ".join(_label(months[a]) if a == b else f"{_label(months[a])} to {_label(months[b])}"
+                     for a, b in groups)
+
+
+def describe_treatments(run, replaced):
+    """Per line: the words for the Treatment column and the source of each forecast month.
+
+    Sources: 'model', 'known' (a known line, or a known amount that replaced the model figure)
+    and 'on_top' (model figure plus a known amount).
+    """
+    months = [m.month for m in run.statement.months]
+    result = {}
+    for position, line in enumerate(run.schema.lines):
+        if line.treatment != "forecast":
+            text = "known" if line.treatment == "known" else "scenario only"
+            result[line.line_id] = (text, ["known"] * len(months))
+            continue
+        swapped = [i for i, m in enumerate(months) if (line.line_id, _label(m)) in replaced]
+        on_top = [i for i, m in enumerate(run.statement.months)
+                  if i not in swapped and m.lines[position].known_overlay]
+        if not swapped:
+            text = "forecast"
+        elif swapped == list(range(len(swapped))) and len(swapped) < len(months):
+            text = f"known {_ranges(swapped, months)}, then forecast"
+        elif len(swapped) == len(months):
+            text = "known in every month"
+        else:
+            text = f"forecast; known in {_ranges(swapped, months)}"
+        if on_top:
+            text += f", plus known on top {_ranges(on_top, months)}"
+        sources = ["known" if i in swapped else "on_top" if i in on_top else "model" for i in range(len(months))]
+        result[line.line_id] = (text, sources)
+    return result
+
+
 def _sheet_names(names):
     used, result = {"summary", "where numbers come from", "notes"}, {}
     for name in names:
@@ -47,6 +90,9 @@ def write_workbook(path, runs, inputs):
     actual_fill = PatternFill("solid", fgColor="EDEDED")
     total_fill = PatternFill("solid", fgColor="DDEBF7")
     cash_fill = PatternFill("solid", fgColor="FFF2CC")
+    known_fill = PatternFill("solid", fgColor="E2EFDA")
+    on_top_fill = PatternFill("solid", fgColor="FCE4D6")
+    source_fill = {"known": known_fill, "on_top": on_top_fill, "model": None}
     right = Alignment(horizontal="right")
 
     base = runs[BASE]
@@ -63,6 +109,7 @@ def write_workbook(path, runs, inputs):
     replaced = {(item["line_id"], item["month"])
                 for item in base.inputs.get("model_forecast_replaced_by_known_amount", [])}
     names = _sheet_names(runs)
+    treatments = describe_treatments(base, replaced)
 
     book = Workbook()
 
@@ -195,12 +242,13 @@ def write_workbook(path, runs, inputs):
         def put(row, label, values, *, font=None, fill=None, treatment="", line_id=None):
             sheet.cell(row, 1, label).font = font or Font()
             sheet.cell(row, 2, treatment)
+            sources = treatments[line_id][1] if line_id else None
             for offset, value in enumerate(values):
                 month = months[offset]
                 shade = fill or (actual_fill if month in actual_months else None)
-                cell = number_cell(sheet, row, 3 + offset, value, font=font, fill=shade)
-                if line_id and (line_id, _label(month)) in replaced:
-                    cell.font = Font(bold=True, color="1F3864")
+                if sources and month not in actual_months:
+                    shade = source_fill[sources[offset - len(actual_months)]]
+                number_cell(sheet, row, 3 + offset, value, font=font, fill=shade)
             if fill:
                 sheet.cell(row, 1).fill = fill
                 sheet.cell(row, 2).fill = fill
@@ -232,7 +280,8 @@ def write_workbook(path, runs, inputs):
                     continue
                 values = [by_month[m].lines[position].point if m in by_month else actual(line.line_id, m)
                           for m in months]
-                put(row, "  " + definition.label, values, treatment=definition.treatment, line_id=line.line_id)
+                put(row, "  " + definition.label, values, treatment=treatments[line.line_id][0],
+                    line_id=line.line_id)
                 row += 1
             put(row, f"Net cash from {section} activities", [section_total(section, m) for m in months],
                 font=bold, fill=total_fill)
@@ -243,11 +292,18 @@ def write_workbook(path, runs, inputs):
                                   else inputs.balances["closing_cash"].get(m) for m in months],
             font=bold, fill=cash_fill)
         row += 2
-        sheet.cell(row, 1, "Treatment: forecast = projected by the model; known = from your schedule. "
-                           "Grey columns are your actuals. Bold blue = your known amount replaced the "
-                           "model figure for that month.").font = italic
+        sheet.cell(row, 1, "Where each forecast figure comes from").font = bold
+        legend = ((None, "No shading: projected by the model"),
+                  (known_fill, "Your known amount (a known line, or it replaced the model's figure)"),
+                  (on_top_fill, "The model's figure plus your known amount on top"),
+                  (actual_fill, "Your actuals"))
+        for fill, text in legend:
+            row += 1
+            if fill:
+                sheet.cell(row, 1).fill = fill
+            sheet.cell(row, 2, text).font = italic
         sheet.column_dimensions["A"].width = 48
-        sheet.column_dimensions["B"].width = 12
+        sheet.column_dimensions["B"].width = 44
         for offset in range(len(months)):
             sheet.column_dimensions[get_column_letter(3 + offset)].width = 13
         sheet.freeze_panes = sheet.cell(6, 3)
@@ -257,7 +313,7 @@ def write_workbook(path, runs, inputs):
 
     # --- where each forecast figure comes from ---------------------------------------
     detail = book.create_sheet("Where numbers come from")
-    detail.append(["Scenario", "Month", "Line", "Treatment", "Model forecast", "Known amounts",
+    detail.append(["Scenario", "Month", "Line", "Source", "Model forecast", "Known amounts",
                    "Scenario change", "Total", "Model", "Note"])
     for cell in detail[1]:
         cell.font = bold
@@ -266,13 +322,16 @@ def write_workbook(path, runs, inputs):
             for line in month.lines:
                 if not (line.base_point or line.known_overlay or line.assumption_overlay):
                     continue
+                index = forecast_months.index(month.month)
+                source = {"known": "known amount", "on_top": "model + known amount on top",
+                          "model": "model"}[treatments[line.line_id][1][index]]
                 note = ("known amount replaced the model figure"
                         if (line.line_id, _label(month.month)) in replaced else "")
                 detail.append([_title(name), _label(month.month), definitions[line.line_id].label,
-                               definitions[line.line_id].treatment, float(line.base_point),
+                               source, float(line.base_point),
                                float(line.known_overlay), float(line.assumption_overlay), float(line.point),
                                line.model_name or "", note])
-    for column, width in zip("ABCDEFGHIJ", (14, 10, 46, 12, 16, 16, 16, 16, 12, 40)):
+    for column, width in zip("ABCDEFGHIJ", (14, 10, 46, 30, 16, 16, 16, 16, 12, 40)):
         detail.column_dimensions[column].width = width
     for cells in detail.iter_rows(min_row=2, min_col=5, max_col=8):
         for cell in cells:

@@ -1,13 +1,13 @@
 """Read the cash-forecast template (one Excel workbook, or a folder of CSV files).
 
-The template has five tables. The same names are used for Excel sheets and for
-CSV files (inputs.csv, lines.csv, ...):
+The template has four tables. The same names are used for Excel sheets and for
+CSV files (inputs.csv, history.csv, ...):
 
   inputs        key / value: currency, origin_month, data_kind (opening_cash only
                 if the history has no closing_cash row)
-  lines         line_id, label, section, treatment
   history       a direct cash-flow statement: an opening_cash row, one row per
-                line, a closing_cash row; one column per month
+                line, a closing_cash row. Columns: line_id, label, section,
+                treatment, then one column per month
   known_events  line_id, month, amount, effect, known_from, note
   scenarios     scenario, line_id, percent, amount, from_month, to_month, note
 
@@ -15,7 +15,8 @@ A line is either "forecast" (a model projects it) or "known" (the schedule is
 used). On a forecast line a known amount either replaces the model figure for
 that month (effect = replace, the default) or is added to it (effect = on top).
 
-Older layouts are still read: tables called "settings" and "assumptions", an
+Older layouts are still read: a separate "lines" table (line_id, label, section,
+treatment), tables called "settings" and "assumptions", an
 event_id column, the treatment "assumption", and scenarios given as one amount
 per month (month, amount, available_from, assumption_id).
 
@@ -35,8 +36,10 @@ from .engine.cash_flow_schema import (
 )
 from .engine.common import add_months
 
-TABLES = ("inputs", "lines", "history", "known_events", "scenarios")
-REQUIRED_TABLES = ("inputs", "lines", "history")
+TABLES = ("inputs", "history", "known_events", "scenarios")      # what the template contains
+READABLE = ("inputs", "lines", "history", "known_events", "scenarios")
+REQUIRED_TABLES = ("inputs", "history")
+LINE_COLUMNS = ("label", "section", "treatment")
 ALIASES = {"settings": "inputs", "assumptions": "scenarios"}
 EFFECTS = {"": "replace", "replace": "replace", "replaces": "replace", "replace forecast": "replace",
            "on top": "on_top", "on_top": "on_top", "ontop": "on_top", "add": "on_top", "additional": "on_top"}
@@ -139,7 +142,7 @@ def _header_text(cell):
 
 def _read_csv_folder(folder):
     tables = {}
-    for file_name in (*TABLES, *ALIASES):
+    for file_name in (*READABLE, *ALIASES):
         name = ALIASES.get(file_name, file_name)
         path = folder / f"{file_name}.csv"
         if not path.is_file() or name in tables:
@@ -167,7 +170,7 @@ def _read_workbook(path):
             title = sheet.title.strip().lower()
             by_name.setdefault(ALIASES.get(title, title), sheet)
         return {name: _rows_from_grid(list(by_name[name].iter_rows(values_only=True)))
-                for name in TABLES if name in by_name}
+                for name in READABLE if name in by_name}
     finally:
         book.close()
 
@@ -286,21 +289,33 @@ def load_inputs(input_path):
     if data_kind not in DATA_KINDS:
         problems.append("inputs: 'data_kind' must be synthetic, actual or unspecified.")
 
-    # lines
+    # lines: defined in the history sheet (label, section, treatment next to each line),
+    # or in a separate "lines" table in older files
     lines, seen = [], set()
-    header, rows = tables["lines"]
+    history_header, history_rows = tables["history"]
+    if "lines" in tables:
+        table = "lines"
+        header, rows = tables["lines"]
+        definitions = list(enumerate(rows, start=2))
+    else:
+        table = "history"
+        header = history_header
+        definitions = [(number, row) for number, row in enumerate(history_rows, start=2)
+                       if str(row.get("line_id", "")).strip()
+                       and str(row.get("line_id", "")).strip().lower() not in BALANCE_ROWS]
     missing = [c for c in ("line_id", "label", "section", "treatment") if c not in header]
     if missing:
-        problems.append(f"lines: missing column(s): {', '.join(missing)}.")
+        problems.append(f"{table}: missing column(s): {', '.join(missing)}. Each line needs a label, "
+                        "a section and a treatment.")
     else:
-        for number, row in enumerate(rows, start=2):
+        for number, row in definitions:
             line_id = str(row["line_id"]).strip()
             label = str(row["label"]).strip() or line_id
             section = str(row["section"]).strip().lower()
             treatment = str(row["treatment"]).strip().lower()
-            where = f"lines row {number} ('{line_id}')"
+            where = f"{table} row {number} ('{line_id}')"
             if not line_id:
-                problems.append(f"lines row {number}: line_id is empty.")
+                problems.append(f"{table} row {number}: line_id is empty.")
                 continue
             if line_id in seen:
                 problems.append(f"{where}: line_id is used twice.")
@@ -317,7 +332,7 @@ def load_inputs(input_path):
     if lines:
         absent = [s for s in SECTIONS if s not in {line.section for line in lines}]
         if absent:
-            problems.append("lines: the cash-flow statement needs at least one line in each section; "
+            problems.append("The cash-flow statement needs at least one line in each section; "
                             f"none found for: {', '.join(absent)}. Add a line (it may stay at zero).")
         if not any(line.treatment == "forecast" for line in lines):
             warnings.append("No line has treatment 'forecast', so no model will run; "
@@ -325,12 +340,14 @@ def load_inputs(input_path):
 
     # history (a direct cash-flow statement: opening cash, one row per line, closing cash)
     history, actuals, balances = [], {}, {"opening_cash": {}, "closing_cash": {}}
-    header, rows = tables["history"]
+    header, rows = history_header, history_rows
     if not header or header[0] != "line_id":
-        problems.append("history: the first column must be 'line_id'; the other columns are months.")
+        problems.append("history: the first column must be 'line_id'.")
     else:
         months = []
         for column in header[1:]:
+            if column.lower() in LINE_COLUMNS:
+                continue
             try:
                 months.append((column, parse_month(column)))
             except ValueError as exc:
@@ -354,7 +371,8 @@ def load_inputs(input_path):
                         problems.append(f"history '{line_id}', {_fmt(month)}: '{cell}' is not a number.")
                 continue
             if line_id not in by_id:
-                problems.append(f"history row {number}: '{line_id}' is not in the lines table.")
+                if "lines" in tables:
+                    problems.append(f"history row {number}: '{line_id}' is not in the lines table.")
                 continue
             if line_id in filled:
                 problems.append(f"history row {number}: '{line_id}' appears twice.")
@@ -413,7 +431,7 @@ def load_inputs(input_path):
                 where = f"known_events row {number}"
                 line_id = str(row["line_id"]).strip()
                 if line_id not in by_id:
-                    problems.append(f"{where}: '{line_id}' is not in the lines table.")
+                    problems.append(f"{where}: '{line_id}' is not one of the lines in the history sheet.")
                     continue
                 if by_id[line_id].treatment == "assumption":
                     problems.append(f"{where}: '{line_id}' has treatment 'assumption'; put this row in the scenarios table.")
@@ -462,7 +480,7 @@ def load_inputs(input_path):
                 line_id = str(row["line_id"]).strip()
                 scenario = str(row["scenario"]).strip()
                 if line_id not in by_id:
-                    problems.append(f"{where}: '{line_id}' is not in the lines table.")
+                    problems.append(f"{where}: '{line_id}' is not one of the lines in the history sheet.")
                     continue
                 if not scenario:
                     problems.append(f"{where}: scenario is empty.")

@@ -18,14 +18,18 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
    | Their row | line_id | section | treatment | Why |
    |---|---|---|---|---|
 
-   Every line you propose needs a row in `history`, and every known line needs
-   its future amounts in `known_events`.
+   Lines are defined in the `history` sheet (line_id, label, section,
+   treatment, then the months). Every known line needs its future amounts in
+   `known_events`.
 
 3. Wait for the user to confirm or correct the mapping. Do not continue on your
    own judgement; a wrong treatment changes the forecast.
-4. Write the filled template (five tables) from their data, copying amounts
-   exactly as they appear.
+4. Write the filled template (four tables) from their data, copying amounts
+   exactly as they appear. Start from an empty template (`with_example: false`)
+   so no rows of the example company are left behind.
 5. Call `cash_forecast_validate`. Show every problem and warning to the user.
+   Also show the known amounts and scenarios it lists per line and ask whether
+   all of them still apply; delete the rows that do not.
 6. When validation passes and the user agrees, call `cash_forecast_run`. It runs
    the base case and every scenario in one go.
 7. Report the returned figures exactly, base case first, then each scenario.

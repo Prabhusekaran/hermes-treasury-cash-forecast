@@ -102,11 +102,10 @@ def main():
         ["origin_month", ym(ORIGIN), "The last month of actuals. The forecast covers the 12 months after it."],
         ["data_kind", "synthetic", "synthetic = made-up data, actual = real company data, unspecified = not stated."],
     ])
-    write("lines.csv", ["line_id", "label", "section", "treatment"], LINES)
-    write("history.csv", ["line_id"] + [ym(m) for m in months],
-          [["opening_cash"] + opening]
-          + [[line[0]] + history[line[0]] for line in LINES]
-          + [["closing_cash"] + closing])
+    write("history.csv", ["line_id", "label", "section", "treatment"] + [ym(m) for m in months],
+          [["opening_cash", "Opening cash", "", ""] + opening]
+          + [list(line) + history[line[0]] for line in LINES]
+          + [["closing_cash", "Closing cash", "", ""] + closing])
 
     events = []
     for i in range(1, 13):

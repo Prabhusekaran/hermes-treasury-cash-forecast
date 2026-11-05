@@ -72,13 +72,12 @@ you need.
 
 ## The template
 
-Five tables: sheets in one `.xlsx`, or five `.csv` files in one folder.
+Four tables: sheets in one `.xlsx`, or four `.csv` files in one folder.
 
 | Table | Columns |
 |---|---|
 | `inputs` | `key`, `value`: `currency`, `origin_month` (last month of actuals), `data_kind` (`synthetic`, `actual`, `unspecified`) |
-| `lines` | `line_id`, `label`, `section` (`operating` / `investing` / `financing`), `treatment` (`forecast` / `known`) |
-| `history` | Your past cash-flow statement: an `opening_cash` row, one row per line, a `closing_cash` row; one column per month (`2024-01`, `2024-02`, ...) |
+| `history` | Your past cash-flow statement and the definition of every line: an `opening_cash` row, one row per line, a `closing_cash` row. Columns: `line_id`, `label`, `section` (`operating` / `investing` / `financing`), `treatment` (`forecast` / `known`), then one column per month (`2024-01`, `2024-02`, ...) |
 | `known_events` | `line_id`, `month`, `amount`, optional `effect` (`replace` / `on top`), `known_from`, `note` |
 | `scenarios` | `scenario`, `line_id`, `percent` or `amount`, optional `from_month`, `to_month`, `note` |
 
@@ -105,10 +104,13 @@ next to the base case.
 forecast from a past month: an item you did not know about then is left out, so
 a back-test cannot use hindsight.
 
-**Keeping the sheets in step.** A line added to `lines` needs a row in
-`history`, and a known line needs its future amounts in `known_events`. A line
-removed from `lines` must be removed from the other sheets too. The check names
-every row that no longer matches.
+**Keeping the sheets in step.** Each line is defined once, in `history`. A
+known line needs its future amounts in `known_events`. When you remove a line,
+remove its rows from `known_events` and `scenarios` too. The check names every
+row that no longer matches, and lists the known amounts and scenarios it found
+for each line, so leftovers from the example or from an earlier forecast are
+easy to spot. Delete the example's rows in `known_events` and `scenarios`
+before entering your own.
 
 ## Models
 
@@ -136,7 +138,10 @@ hidden. They come back in the result as `model_notes`.
   lowest point, any month below zero, and what each scenario changes.
 - **One sheet per scenario:** a cash-flow statement from opening cash to closing
   cash, with every line, section totals and net cash flow, for your last 12
-  actual months and the 12 forecast months.
+  actual months and the 12 forecast months. The Treatment column says how each
+  line was built (for example "known 2026-10 to 2026-11, then forecast"), and
+  each forecast cell is shaded by its source: model, your known amount, or
+  model plus your amount on top.
 - **Where numbers come from:** for every forecast figure, the model part, the
   known part and the scenario part.
 - **Notes:** what was left out and why, and the warnings.

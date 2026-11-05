@@ -24,19 +24,18 @@ INSTRUCTIONS = [
     ["Sheet", "What goes in it"],
     ["inputs", "currency; origin_month = the last month of actuals; data_kind = synthetic, actual or "
                "unspecified. (opening_cash is only needed here if the history has no closing_cash row.)"],
-    ["lines", "One row per cash-flow line; add as many as you need. line_id is a short name without "
-              "spaces that the other sheets refer to. section = operating, investing or financing. "
-              "treatment = forecast (a model projects it from history) or known (you supply the future "
-              "amounts in known_events; months without an amount are zero). A line the business never "
-              "had before is known, because a model has no history to learn from. "
-              "At least one line per section. Every line_id here needs a row in history."],
-    ["history", "Your past cash-flow statement, one column per month, ending at origin_month. "
-                "First row opening_cash, then one row per line, last row closing_cash. "
+    ["history", "Your past cash-flow statement and the definition of every line. First row opening_cash, "
+                "then one row per line, last row closing_cash; one column per month, ending at origin_month. "
+                "Add or remove rows as you need. For each line: line_id = a short name without spaces that "
+                "the other sheets refer to; label = the name shown in the result; section = operating, "
+                "investing or financing (at least one line in each); treatment = forecast (a model projects "
+                "it from this history) or known (you supply the future amounts in known_events; months "
+                "without an amount are zero). A line the business never had before is known, because a "
+                "model has no history to learn from. "
                 "The plugin checks that every month ties: opening cash + all lines = closing cash. "
                 "The closing cash of origin_month becomes the opening cash of the forecast. "
                 "Forecast lines must have no gaps: 24 months are needed for the default model (ETS), "
-                "36 for SARIMA. For forecast lines, one-off items distort the model; move large "
-                "one-offs to a separate known line."],
+                "36 for SARIMA. Large one-offs distort the model; move them to a separate known line."],
     ["known_events", "Future cash movements you already know: rent, tax, loan repayments, capex, the next "
                      "payroll run. One row per payment. effect only matters on a forecast line: "
                      "replace (or empty) = use my amount instead of the model's figure for that month; "
@@ -48,10 +47,16 @@ INSTRUCTIONS = [
                   "Use amount (per month) for a fixed sum, such as a contingency. "
                   "from_month and to_month are optional; empty means all 12 forecast months. "
                   "The base case ignores this sheet. Every scenario is run and shown next to the base case."],
-    ["Keeping sheets in step", "If you add a line: add it to lines, add its row to history, and if it is known, "
-                               "add its future amounts to known_events. If you remove a line: remove its rows "
-                               "from history, known_events and scenarios too. The check tells you exactly "
-                               "which rows no longer match."],
+    [""],
+    ["Before you run", ""],
+    ["Clear the example", "The rows in known_events and scenarios belong to the made-up example company. "
+                          "Delete all of them before you enter your own. Later, delete a row as soon as "
+                          "it no longer applies: a payment that was cancelled, a scenario you dropped."],
+    ["Keep sheets in step", "If you add a line in history and it is known, add its future amounts to "
+                            "known_events. If you remove a line from history, remove its rows from "
+                            "known_events and scenarios too. The check names every row that no longer "
+                            "matches, and lists the known amounts and scenarios it found for each line "
+                            "so you can spot leftovers."],
     [""],
     ["What you get", "One Excel workbook: a summary comparing closing cash across the base case and every "
                      "scenario, then one cash-flow statement per scenario with your last 12 actual months "
@@ -68,7 +73,9 @@ def _example_rows(name, with_example):
     if name == "inputs":        # keep the keys and explanations, clear the values
         return [rows[0]] + [[r[0], "", r[2]] for r in rows[1:]]
     if name == "history":       # add one column per month and one row per line
-        return [["line_id", "2024-01", "2024-02"], ["opening_cash", "", ""], ["closing_cash", "", ""]]
+        return [["line_id", "label", "section", "treatment", "2024-01", "2024-02"],
+                ["opening_cash", "Opening cash", "", "", "", ""],
+                ["closing_cash", "Closing cash", "", "", "", ""]]
     return rows[:1]
 
 
@@ -124,7 +131,14 @@ def write_template(output_dir, file_format="xlsx", with_example=True):
             sheet.append(row if index == 0 else [_number(cell) for cell in row])
         for cell in sheet[1]:
             cell.font = Font(bold=True)
-        sheet.freeze_panes = "B2"
+        sheet.freeze_panes = "E2" if name == "history" else "B2"
         sheet.column_dimensions["A"].width = 24
+        if name == "history":
+            sheet.column_dimensions["B"].width = 46
+            for cell in sheet["A"] + sheet["B"]:
+                if cell.value in ("opening_cash", "closing_cash", "Opening cash", "Closing cash"):
+                    cell.font = Font(bold=True)
+        elif name in ("known_events", "scenarios"):
+            sheet.column_dimensions[sheet.cell(1, sheet.max_column).column_letter].width = 60
     book.save(path)
     return path

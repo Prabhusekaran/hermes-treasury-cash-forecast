@@ -322,7 +322,7 @@ def test_unknown_scenario_and_model_are_refused(example):
     (["downside", "receipts_export", "", "", "", "", ""], "either 'percent' or 'amount'"),
     (["downside", "receipts_export", "250", "", "", "", ""], "outside -100 to 100"),
     (["downside", "receipts_export", "5", "", "2027-05", "2027-01", ""], "to_month is before from_month"),
-    (["downside", "no_such_line", "5", "", "", "", ""], "not in the lines table"),
+    (["downside", "no_such_line", "5", "", "", "", ""], "not one of the lines in the history sheet"),
     (["base", "receipts_export", "5", "", "", "", ""], "choose another name"),
 ])
 def test_bad_scenario_rows_are_explained(example, row, message):
@@ -367,19 +367,49 @@ def test_history_break_between_months_is_reported(example):
 
 
 # --- keeping the sheets in step -------------------------------------------------------
-def test_line_removed_from_lines_but_left_elsewhere_is_reported(example):
-    edit(example, "lines", lambda rows: [r for r in rows if r[0] != "capex"])
+def add_line(rows, *definition):
+    blanks = [""] * (len(rows[0]) - 4)
+    return rows[:-1] + [list(definition) + blanks] + rows[-1:]      # keep closing_cash last
+
+
+def test_line_removed_from_history_but_left_elsewhere_is_reported(example):
+    edit(example, "history", lambda rows: [r for r in rows if r[0] != "capex"])
+    edit(example, "scenarios", lambda rows: rows + [["downside", "capex", "10", "", "", "", ""]])
     text = problems_for(example)
-    assert "history row" in text and "known_events row" in text and "'capex' is not in the lines table" in text
+    assert "known_events row" in text and "scenarios row" in text
+    assert text.count("'capex' is not one of the lines in the history sheet") == 3
 
 
 def test_new_forecast_line_without_history_is_reported(example):
-    edit(example, "lines", lambda rows: rows + [["licence_income", "Licence income", "operating", "forecast"]])
-    assert "forecast line 'licence_income' has no row" in problems_for(example)
+    edit(example, "history", lambda rows: add_line(rows, "licence_income", "Licence income", "operating", "forecast"))
+    assert "history 'licence_income': no values" in problems_for(example)
+
+
+def test_history_needs_the_line_columns(example):
+    edit(example, "history", lambda rows: [[r[0]] + r[4:] for r in rows])
+    assert "missing column(s): label, section, treatment" in problems_for(example)
+
+
+def test_recap_lists_known_amounts_and_scenarios_per_line(example):
+    result = call(tools.cash_forecast_validate, input_path=str(example))
+    lines = {line["line_id"]: line for line in result["lines"]}
+    assert lines["capex"]["known_amounts"] == 2 and lines["capex"]["known_total"] == "-570000.00"
+    assert lines["net_salaries"]["known_amounts_replacing_the_model"] == 2
+    assert lines["receipts_export"]["known_amounts_on_top_of_the_model"] == 3
+    assert lines["receipts_export"]["scenarios"] == ["downside", "upside"]
+    assert "known_amounts" not in lines["loan_drawdowns"]            # its only amount is not yet known
+    assert "still apply" in result["check_with_the_user"]
+
+
+def test_empty_template_has_no_example_rows_to_clear(tmp_path):
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="csv", with_example=False)
+    for name in ("known_events", "scenarios"):
+        with (Path(made["path"]) / f"{name}.csv").open(newline="", encoding="utf-8") as file:
+            assert len(list(csv.reader(file))) == 1
 
 
 def test_new_known_line_without_history_or_schedule_gets_warnings(example):
-    edit(example, "lines", lambda rows: rows + [["grant", "Government grant", "operating", "known"]])
+    edit(example, "history", lambda rows: add_line(rows, "grant", "Government grant", "operating", "known"))
     text = warnings_for(example)
     assert "could not be tied" in text and "grant" in text
     assert "Known line 'grant' has no scheduled amount" in text
@@ -387,7 +417,7 @@ def test_new_known_line_without_history_or_schedule_gets_warnings(example):
 
 def test_missing_section_is_explained(example):
     investing = {"capex", "asset_disposals", "interest_received"}
-    for table in ("lines", "history", "known_events"):
+    for table in ("history", "known_events"):
         edit(example, table, lambda rows: [r for r in rows if r[0] not in investing])
     assert "investing" in problems_for(example)
 
@@ -408,9 +438,9 @@ def test_history_must_reach_the_origin_month(example):
 
 def test_bad_treatment_is_reported(example):
     def bad(rows):
-        rows[1][3] = "guess"
+        next(r for r in rows if r[0] == "receipts_domestic")[3] = "guess"
         return rows
-    edit(example, "lines", bad)
+    edit(example, "history", bad)
     assert "treatment must be forecast or known" in problems_for(example)
 
 
@@ -422,7 +452,7 @@ def test_all_problems_are_reported_together(example):
 
 
 def test_too_little_history_names_the_models_that_can_run(example):
-    edit(example, "history", lambda rows: [[r[0]] + r[-14:] for r in rows])
+    edit(example, "history", lambda rows: [r[:4] + r[-14:] for r in rows])
     result = call(tools.cash_forecast_run, input_path=str(example), model="ets")
     assert result["success"] is False
     assert "needs 24 months" in result["problems"][0] and "seasonal_naive" in result["problems"][0]
@@ -439,12 +469,12 @@ def test_actual_data_kind_is_accepted_and_reported(example):
 
 def test_semicolon_csv_with_european_numbers(example):
     expected = run(example)["closing_cash_by_month"]
-    for name in ("inputs", "lines", "history", "known_events", "scenarios"):
+    for name in ("inputs", "history", "known_events", "scenarios"):
         path = example / f"{name}.csv"
         with path.open(newline="", encoding="utf-8") as file:
             rows = list(csv.reader(file))
         if name == "history":
-            rows = [rows[0]] + [[r[0]] + [f"{float(v):.2f}".replace(".", ",") for v in r[1:]] for r in rows[1:]]
+            rows = [rows[0]] + [r[:4] + [f"{float(v):.2f}".replace(".", ",") for v in r[4:]] for r in rows[1:]]
         with path.open("w", newline="", encoding="utf-8") as file:
             csv.writer(file, delimiter=";").writerows(rows)
     assert run(example)["closing_cash_by_month"] == expected
@@ -506,6 +536,21 @@ def test_statement_runs_from_actuals_into_the_forecast(example, sheet_name, scen
     sections = [rows[f"Net cash from {s} activities"][2:] for s in ("operating", "investing", "financing")]
     for i in range(24):
         assert sum(s[i] for s in sections) == pytest.approx(net[i], abs=0.005)
+
+
+def test_statement_shows_the_mix_of_known_and_forecast_months(example):
+    from openpyxl import load_workbook
+    sheet = load_workbook(run(example)["main_file"])["Base case"]
+    rows = {str(row[0].value).strip(): row for row in sheet.iter_rows() if row[0].value}
+    def shading(label):
+        return [cell.fill.fgColor.rgb[-6:] if cell.fill.fill_type else None for cell in rows[label][14:26]]
+    assert rows["Net salaries"][1].value == "known 2026-10 to 2026-11, then forecast"
+    assert shading("Net salaries") == ["E2EFDA"] * 2 + [None] * 10
+    assert rows["Receipts from customers, export"][1].value == "forecast, plus known on top 2027-01 to 2027-03"
+    assert shading("Receipts from customers, export") == [None] * 3 + ["FCE4D6"] * 3 + [None] * 6
+    assert rows["Rent and leases"][1].value == "known" and shading("Rent and leases") == ["E2EFDA"] * 12
+    assert rows["Receipts from customers, domestic"][1].value == "forecast"
+    assert shading("Receipts from customers, domestic") == [None] * 12
 
 
 # --- comparison and robustness -----------------------------------------------------------

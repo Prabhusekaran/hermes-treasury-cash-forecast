@@ -3,7 +3,7 @@
 _INPUT_PATH = {
     "type": "string",
     "description": "Path to the filled template: one .xlsx workbook, or a folder holding "
-                   "inputs.csv, lines.csv, history.csv, known_events.csv and scenarios.csv.",
+                   "inputs.csv, history.csv, known_events.csv and scenarios.csv.",
 }
 _MODEL_NAMES = ["ets", "sarima", "baseline", "seasonal_drift", "seasonal_naive",
                 "previous_month", "chronos_2"]
@@ -35,8 +35,9 @@ CASH_FORECAST_VALIDATE = {
         "Check a filled cash-forecast template before running it. Reports every problem in plain "
         "language (missing months, unknown lines, wrong section or treatment), whether the history "
         "ties from opening cash to closing cash every month, the opening cash the forecast will "
-        "start from, how many months of history each forecast line has, which models can run, which "
-        "scenarios exist, and treasury warnings such as possible double counting. Always call this before cash_forecast_run and "
+        "start from, how many months of history each forecast line has, the known amounts and "
+        "scenarios found for each line (so the user can confirm they all still apply), which models "
+        "can run, and treasury warnings such as possible double counting. Always call this before cash_forecast_run and "
         "show the user the problems or warnings. It does not forecast anything."
     ),
     "parameters": {"type": "object", "properties": {"input_path": _INPUT_PATH}, "required": ["input_path"]},

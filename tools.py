@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .engine.cash_flow_orchestration import write_outputs
 from .engine.cash_flow_schema import HORIZON
+from .engine.common import add_months
 from .engine.evaluate import MODEL_REGISTRY
 from .loader import TemplateError, load_inputs
 from .scenarios import BASE, run_all
@@ -62,8 +63,28 @@ def _model_readiness(inputs):
 
 
 def _overview(inputs):
-    lines = inputs.schema.lines
     months = inputs.history_months()
+    horizon = {add_months(inputs.origin_month, i) for i in range(1, HORIZON + 1)}
+    lines = []
+    for line in inputs.schema.lines:
+        known = [e for e in inputs.known_events if e.line_id == line.line_id
+                 and e.effective_month in horizon and e.known_from_month <= inputs.origin_month]
+        scenarios = sorted({r.scenario for r in inputs.rules if r.line_id == line.line_id}
+                           | {a.scenario_id for a in inputs.assumptions if a.line_id == line.line_id})
+        entry = {"line_id": line.line_id, "label": line.label, "section": line.section,
+                 "treatment": line.treatment}
+        if line.treatment == "forecast":
+            entry["history_months"] = months.get(line.line_id, 0)
+        if known:
+            entry["known_amounts"] = len(known)
+            entry["known_total"] = f"{sum(float(e.amount) for e in known):.2f}"
+            replacing = sum(e.event_id in inputs.replace_ids for e in known)
+            if line.treatment == "forecast":
+                entry["known_amounts_replacing_the_model"] = replacing
+                entry["known_amounts_on_top_of_the_model"] = len(known) - replacing
+        if scenarios:
+            entry["scenarios"] = scenarios
+        lines.append(entry)
     return {
         "source": inputs.source,
         "currency": inputs.schema.currency,
@@ -73,13 +94,12 @@ def _overview(inputs):
         "opening_cash_taken_from": inputs.opening_cash_source,
         "history_ties_opening_to_closing": {True: "yes", False: "no, see warnings",
                                             None: "not checked"}[inputs.history_ties],
-        "lines": [{"line_id": l.line_id, "label": l.label, "section": l.section,
-                   "treatment": l.treatment,
-                   **({"history_months": months.get(l.line_id, 0)} if l.treatment == "forecast" else {})}
-                  for l in lines],
-        "known_amounts": len(inputs.known_events),
-        "model_figure_replaced_by_known_amount": len(inputs.replace_ids),
+        "lines": lines,
+        "known_amounts_in_the_next_12_months": sum(l.get("known_amounts", 0) for l in lines),
         "scenarios": inputs.scenarios,
+        "check_with_the_user": "Show the user the known amounts and scenarios found per line and ask "
+                               "whether all of them still apply. Rows left over from the example or from "
+                               "an earlier forecast must be deleted before running.",
     }
 
 
@@ -180,12 +200,13 @@ def cash_forecast_template(args: dict, **kwargs) -> str:
             "success": True, "path": str(path),
             "contains": "synthetic example company (made-up data)" if args.get("with_example", True)
                         else "empty template",
-            "next_step": "Fill the five tables, then call cash_forecast_validate with this path.",
-            "tables": ["inputs", "lines", "history", "known_events", "scenarios"],
-            "layout": "history is a direct cash-flow statement: opening_cash row, one row per line, "
-                      "closing_cash row. Every line_id in 'lines' needs a row in 'history'; known lines "
-                      "need their future amounts in 'known_events'. scenarios are percentages (or fixed "
-                      "amounts) per scenario name.",
+            "next_step": "Fill the four tables, then call cash_forecast_validate with this path.",
+            "tables": ["inputs", "history", "known_events", "scenarios"],
+            "layout": "history is a direct cash-flow statement and defines the lines: opening_cash row, "
+                      "one row per line (line_id, label, section, treatment, then the months), "
+                      "closing_cash row. Known lines need their future amounts in 'known_events'. "
+                      "scenarios are percentages (or fixed amounts) per scenario name. The example rows in "
+                      "known_events and scenarios must be deleted before the user enters their own.",
         })
     except TemplateError as exc:
         return _fail("The template could not be written.", exc.problems)
