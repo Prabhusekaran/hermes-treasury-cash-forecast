@@ -26,8 +26,10 @@ INSTRUCTIONS = [
                "unspecified. (opening_cash is only needed here if the history has no closing_cash row.)"],
     ["lines", "One row per cash-flow line; add as many as you need. line_id is a short name without "
               "spaces that the other sheets refer to. section = operating, investing or financing. "
-              "treatment = forecast (a model projects it from history), known (you supply the schedule) "
-              "or assumption (only applied when you pick a scenario). At least one line per section."],
+              "treatment = forecast (a model projects it from history) or known (you supply the future "
+              "amounts in known_events; months without an amount are zero). A line the business never "
+              "had before is known, because a model has no history to learn from. "
+              "At least one line per section. Every line_id here needs a row in history."],
     ["history", "Your past cash-flow statement, one column per month, ending at origin_month. "
                 "First row opening_cash, then one row per line, last row closing_cash. "
                 "The plugin checks that every month ties: opening cash + all lines = closing cash. "
@@ -35,18 +37,25 @@ INSTRUCTIONS = [
                 "Forecast lines must have no gaps: 24 months are needed for the default model (ETS), "
                 "36 for SARIMA. For forecast lines, one-off items distort the model; move large "
                 "one-offs to a separate known line."],
-    ["known_events", "Future cash movements you already know: salaries, rent, tax, loan repayments, capex. "
-                     "One row per payment. known_from = the month you learned about it; leave it empty "
-                     "if you know it today. On a forecast line the amount is added on top of the model forecast."],
-    ["assumptions", "Optional what-if cases, grouped by a scenario name you choose (for example downside). "
-                    "percent changes the size of a line: -6 on receipts means 6% lower receipts, 4 on "
-                    "supplier payments means 4% higher payments. Type -6, not a percentage-formatted cell. "
-                    "Use amount (per month) only for a fixed sum on an assumption line. "
-                    "from_month and to_month are optional; empty means all 12 forecast months. "
-                    "The base forecast ignores this sheet."],
+    ["known_events", "Future cash movements you already know: rent, tax, loan repayments, capex, the next "
+                     "payroll run. One row per payment. effect only matters on a forecast line: "
+                     "replace (or empty) = use my amount instead of the model's figure for that month; "
+                     "on top = add my amount to the model's figure (for something new that is not in the "
+                     "history). known_from = the month you learned about it; empty = you know it today."],
+    ["scenarios", "Optional what-if cases, grouped by a scenario name you choose (for example downside). "
+                  "percent changes the size of a line: -4 on receipts means 4% lower receipts, 4 on "
+                  "supplier payments means 4% higher payments. Type -4, not a percentage-formatted cell. "
+                  "Use amount (per month) for a fixed sum, such as a contingency. "
+                  "from_month and to_month are optional; empty means all 12 forecast months. "
+                  "The base case ignores this sheet. Every scenario is run and shown next to the base case."],
+    ["Keeping sheets in step", "If you add a line: add it to lines, add its row to history, and if it is known, "
+                               "add its future amounts to known_events. If you remove a line: remove its rows "
+                               "from history, known_events and scenarios too. The check tells you exactly "
+                               "which rows no longer match."],
     [""],
-    ["What you get", "An Excel cash-flow statement with your last 12 actual months and 12 forecast months: "
-                     "opening cash, every line, section totals, net cash flow and closing cash. "
+    ["What you get", "One Excel workbook: a summary comparing closing cash across the base case and every "
+                     "scenario, then one cash-flow statement per scenario with your last 12 actual months "
+                     "and 12 forecast months, from opening cash to closing cash. "
                      "Each forecast month is checked to the cent: opening + net cash flow = closing."],
 ]
 

@@ -18,15 +18,20 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
    | Their row | line_id | section | treatment | Why |
    |---|---|---|---|---|
 
+   Every line you propose needs a row in `history`, and every known line needs
+   its future amounts in `known_events`.
+
 3. Wait for the user to confirm or correct the mapping. Do not continue on your
    own judgement; a wrong treatment changes the forecast.
 4. Write the filled template (five tables) from their data, copying amounts
    exactly as they appear.
 5. Call `cash_forecast_validate`. Show every problem and warning to the user.
-6. When validation passes and the user agrees, call `cash_forecast_run`.
-7. Report the returned figures exactly. Name the lowest-cash month and any
-   month below zero. Say which lines came from a model and which from the
-   schedule. Point the user to `cash_forecast.xlsx`, the cash-flow statement.
+6. When validation passes and the user agrees, call `cash_forecast_run`. It runs
+   the base case and every scenario in one go.
+7. Report the returned figures exactly, base case first, then each scenario.
+   Name the lowest-cash month and any month below zero. Say which lines came
+   from a model and which from the schedule. Point the user to
+   `cash_forecast.xlsx`: a summary sheet and one cash-flow statement per scenario.
 
 ## How to choose section and treatment
 
@@ -36,9 +41,14 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   none for a section, add one line and leave it empty.
 - **forecast**: recurring flows with at least 24 months of monthly history and
   no fixed schedule, such as customer receipts or supplier payments.
-- **known**: flows fixed by contract or already decided, such as payroll, tax
+- **known**: flows fixed by contract or already decided, such as rent, tax
   instalments, loan repayments, approved capex. The user supplies the amounts.
-- **assumption**: what-if items that should only count in a named scenario.
+  A line the business never had before is also known: a model has no history
+  to learn from.
+- A line can mix both. If the user knows the next month or two exactly and
+  wants the model after that (salaries are typical), make the line `forecast`
+  and add the known months to `known_events` with effect `replace`. Use effect
+  `on top` only for something new that the history does not contain.
 
 ## Rules that protect the result
 
@@ -49,9 +59,9 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   balances. Only cash movements belong in the template.
 - Money in is positive, money out is negative. If the user's file shows
   payments as positive numbers, ask before flipping the sign.
-- History for a forecast line must be the recurring part only. If a known
-  event sits on a forecast line, it is added on top of the model forecast, so
-  the same item must not also be inside that line's history.
+- A known amount with effect `on top` is added to the model's figure, so the
+  same kind of item must not also be inside that line's history. Ask the user
+  which effect they mean; never choose `on top` yourself.
 - If the file is an indirect cash-flow statement (it starts from profit or
   EBITDA and adjusts for working capital), say so. This template is a direct
   statement of receipts and payments, and a line-by-line mapping from an
@@ -62,9 +72,9 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   calculate a balance yourself. If validation says the history does not tie,
   show the user the months and amounts and ask what is missing (often FX effect
   on cash or an unmapped row). Do not plug the difference.
-- Scenario assumptions are percentages of a line (`-5` = 5% lower receipts,
-  `5` on a payment line = 5% higher payments). Ask the user for the
-  percentages; do not invent them. Use `amount` only on an assumption line.
+- Scenarios are percentages of a line (`-5` = 5% lower receipts, `5` on a
+  payment line = 5% higher payments). Ask the user for the percentages; do not
+  invent them. Use `amount` for a fixed monthly sum such as a contingency.
 - Set `data_kind` to what the user tells you (synthetic, actual, unspecified).
 
 ## What to say about limits

@@ -10,11 +10,12 @@ description: >
   template (Excel or CSV) with your past cash-flow statement, known future
   payments and what-if percentages. Forecast lines are projected by a
   statistical model (ETS by default; SARIMA, four simple baselines, optional
-  Chronos-2), known lines come from your schedule, and scenarios apply only
-  when you pick one. The result is an Excel cash-flow statement, actuals then
-  forecast, reconciled to the cent every month: opening cash + net cash flow =
-  closing cash. The numbers come from a tested engine, not from the language
-  model. No network calls, no credentials.
+  Chronos-2), known lines come from your schedule, and a known amount can
+  replace the model for single months. The result is one Excel workbook: a
+  summary of the base case against every scenario and a cash-flow statement
+  per scenario, actuals then forecast, reconciled to the cent every month:
+  opening cash + net cash flow = closing cash. The numbers come from a tested
+  engine, not from the language model. No network calls, no credentials.
 tags: [finance, treasury, forecasting]
 requires_hermes: ">=0.22.2"
 provides_tools:

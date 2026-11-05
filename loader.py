@@ -8,12 +8,16 @@ CSV files (inputs.csv, lines.csv, ...):
   lines         line_id, label, section, treatment
   history       a direct cash-flow statement: an opening_cash row, one row per
                 line, a closing_cash row; one column per month
-  known_events  line_id, month, amount, known_from, note
-  assumptions   scenario, line_id, percent, amount, from_month, to_month, note
+  known_events  line_id, month, amount, effect, known_from, note
+  scenarios     scenario, line_id, percent, amount, from_month, to_month, note
 
-Older layouts are still read: a table called "settings", an event_id column, and
-assumptions given as one amount per month (month, amount, available_from,
-assumption_id).
+A line is either "forecast" (a model projects it) or "known" (the schedule is
+used). On a forecast line a known amount either replaces the model figure for
+that month (effect = replace, the default) or is added to it (effect = on top).
+
+Older layouts are still read: tables called "settings" and "assumptions", an
+event_id column, the treatment "assumption", and scenarios given as one amount
+per month (month, amount, available_from, assumption_id).
 
 Every problem is collected and reported in plain language, so the user can fix
 the whole file in one pass. Nothing here calculates a forecast.
@@ -31,9 +35,12 @@ from .engine.cash_flow_schema import (
 )
 from .engine.common import add_months
 
-TABLES = ("inputs", "lines", "history", "known_events", "assumptions")
+TABLES = ("inputs", "lines", "history", "known_events", "scenarios")
 REQUIRED_TABLES = ("inputs", "lines", "history")
-ALIASES = {"settings": "inputs"}
+ALIASES = {"settings": "inputs", "assumptions": "scenarios"}
+EFFECTS = {"": "replace", "replace": "replace", "replaces": "replace", "replace forecast": "replace",
+           "on top": "on_top", "on_top": "on_top", "ontop": "on_top", "add": "on_top", "additional": "on_top"}
+BASE = "base"
 DATA_KINDS = ("synthetic", "actual", "unspecified")
 BALANCE_ROWS = {"opening_cash": "opening_cash", "opening cash": "opening_cash",
                 "opening balance": "opening_cash", "opening cash balance": "opening_cash",
@@ -52,7 +59,7 @@ class TemplateError(ValueError):
 
 @dataclass(frozen=True)
 class ScenarioRule:
-    """One row of the assumptions table: a percentage or a fixed amount on a line."""
+    """One row of the scenarios table: a percentage or a fixed amount on a line."""
     scenario: str
     line_id: str
     percent: float | None
@@ -75,6 +82,7 @@ class Inputs:
     source: str
     warnings: list = field(default_factory=list)
     rules: tuple = ()                                # ScenarioRule rows (percent or amount)
+    replace_ids: frozenset = frozenset()             # known events that replace the model figure
     actuals: dict = field(default_factory=dict)      # line_id -> {month: amount}, every line supplied
     balances: dict = field(default_factory=dict)     # "opening_cash"/"closing_cash" -> {month: amount}
     opening_cash_source: str = "inputs"
@@ -300,8 +308,8 @@ def load_inputs(input_path):
             if section not in SECTIONS:
                 problems.append(f"{where}: section must be operating, investing or financing.")
                 continue
-            if treatment not in TREATMENTS:
-                problems.append(f"{where}: treatment must be forecast, known or assumption.")
+            if treatment not in TREATMENTS:      # "assumption" is still read from older files
+                problems.append(f"{where}: treatment must be forecast or known.")
                 continue
             seen.add(line_id)
             lines.append(CashFlowLine(line_id, label, section, treatment))
@@ -313,7 +321,7 @@ def load_inputs(input_path):
                             f"none found for: {', '.join(absent)}. Add a line (it may stay at zero).")
         if not any(line.treatment == "forecast" for line in lines):
             warnings.append("No line has treatment 'forecast', so no model will run; "
-                            "the result is only the known schedule and assumptions.")
+                            "the result is only the known schedule and the scenarios.")
 
     # history (a direct cash-flow statement: opening cash, one row per line, closing cash)
     history, actuals, balances = [], {}, {"opening_cash": {}, "closing_cash": {}}
@@ -393,7 +401,7 @@ def load_inputs(input_path):
                 problems.append(f"history: forecast line '{line.line_id}' has no row.")
 
     # known events
-    events = []
+    events, replace_ids = [], set()
     if "known_events" in tables and tables["known_events"][0]:
         header, rows = tables["known_events"]
         missing = [c for c in ("line_id", "month", "amount") if c not in header]
@@ -408,7 +416,7 @@ def load_inputs(input_path):
                     problems.append(f"{where}: '{line_id}' is not in the lines table.")
                     continue
                 if by_id[line_id].treatment == "assumption":
-                    problems.append(f"{where}: '{line_id}' is an assumption line; put this row in the assumptions table.")
+                    problems.append(f"{where}: '{line_id}' has treatment 'assumption'; put this row in the scenarios table.")
                     continue
                 try:
                     effective = parse_month(row["month"])
@@ -422,6 +430,10 @@ def load_inputs(input_path):
                 if effective < known_from:
                     problems.append(f"{where}: known_from is after the month the cash moves.")
                     continue
+                effect = EFFECTS.get(str(row.get("effect", "")).strip().lower())
+                if effect is None:
+                    problems.append(f"{where}: effect must be 'replace' or 'on top' (empty means replace).")
+                    continue
                 event_id = str(row.get("event_id", "")).strip() or f"{line_id}_{_fmt(effective)}_row{number}"
                 if event_id in ids:
                     problems.append(f"{where}: event_id '{event_id}' is used twice.")
@@ -429,22 +441,24 @@ def load_inputs(input_path):
                 ids.add(event_id)
                 events.append(KnownEvent(event_id, line_id, effective, known_from, amount,
                                          str(row.get("note", "")).strip()))
+                if effect == "replace" and by_id[line_id].treatment == "forecast":
+                    replace_ids.add(event_id)
 
-    # assumptions: a percentage or a fixed amount per line, over a range of months
+    # scenarios: a percentage or a fixed amount per line, over a range of months
     assumptions, rules = [], []
-    if "assumptions" in tables and tables["assumptions"][0]:
-        header, rows = tables["assumptions"]
+    if "scenarios" in tables and tables["scenarios"][0]:
+        header, rows = tables["scenarios"]
         legacy = "month" in header and "percent" not in header     # one amount per month
         needed = ("scenario", "line_id", "month", "amount") if legacy else ("scenario", "line_id")
         missing = [c for c in needed if c not in header]
         if not legacy and "percent" not in header and "amount" not in header:
             missing.append("percent (or amount)")
         if missing:
-            problems.append(f"assumptions: missing column(s): {', '.join(missing)}.")
+            problems.append(f"scenarios: missing column(s): {', '.join(missing)}.")
         else:
             ids = set()
             for number, row in enumerate(rows, start=2):
-                where = f"assumptions row {number}"
+                where = f"scenarios row {number}"
                 line_id = str(row["line_id"]).strip()
                 scenario = str(row["scenario"]).strip()
                 if line_id not in by_id:
@@ -452,6 +466,9 @@ def load_inputs(input_path):
                     continue
                 if not scenario:
                     problems.append(f"{where}: scenario is empty.")
+                    continue
+                if scenario.lower() in (BASE, "base case"):
+                    problems.append(f"{where}: 'base' is the forecast without any scenario; choose another name.")
                     continue
                 note = str(row.get("note", "")).strip()
                 if legacy:
@@ -490,8 +507,8 @@ def load_inputs(input_path):
                     problems.append(f"{where}: {exc}.")
                     continue
                 if percent is not None and by_id[line_id].treatment == "assumption":
-                    problems.append(f"{where}: '{line_id}' is an assumption line, so there is nothing to take "
-                                    "a percentage of. Give an amount instead.")
+                    problems.append(f"{where}: '{line_id}' has no forecast or schedule, so there is nothing to "
+                                    "take a percentage of. Give an amount instead.")
                     continue
                 if start and end and end < start:
                     problems.append(f"{where}: to_month is before from_month.")
@@ -547,21 +564,24 @@ def load_inputs(input_path):
     # treasury sense checks (warnings only; the forecast can still run)
     horizon = {add_months(origin, i) for i in range(1, HORIZON + 1)}
     in_horizon = [e for e in events if e.effective_month in horizon and e.known_from_month <= origin]
-    forecast_overlays = sorted({e.line_id for e in in_horizon if by_id[e.line_id].treatment == "forecast"})
-    if forecast_overlays:
-        warnings.append("Known events sit on forecast line(s) " + ", ".join(forecast_overlays) +
-                        ". They are ADDED on top of the model forecast, so the history of these lines "
-                        "must not already contain the same kind of item, or it is counted twice.")
+    on_top = sorted({e.line_id for e in in_horizon
+                     if by_id[e.line_id].treatment == "forecast" and e.event_id not in replace_ids})
+    if on_top:
+        warnings.append("Known amounts are added ON TOP of the model forecast on line(s) " + ", ".join(on_top) +
+                        ". Make sure the history of these lines does not already contain the same kind "
+                        "of item, or it is counted twice.")
+    touched = {r.line_id for r in rules} | {a.line_id for a in assumptions}
     for line in lines:
-        if line.treatment == "known" and not any(e.line_id == line.line_id for e in in_horizon):
+        if (line.treatment == "known" and line.line_id not in touched
+                and not any(e.line_id == line.line_id for e in in_horizon)):
             warnings.append(f"Known line '{line.line_id}' has no scheduled amount in the next 12 months; "
                             "it will be zero.")
     skipped = [e for e in events if e not in in_horizon]
     if skipped:
-        warnings.append(f"{len(skipped)} known event(s) fall outside the next 12 months or were not yet "
-                        "known at origin_month; they are left out and listed in the report.")
+        warnings.append(f"{len(skipped)} known amount(s) fall outside the next 12 months or were not yet "
+                        "known at origin_month; they are left out and listed in the result.")
 
     return Inputs(CashFlowSchema(currency, tuple(lines)), tuple(history), origin,
                   OpeningCash(origin, opening), tuple(events), tuple(assumptions),
-                  data_kind, source, warnings, tuple(rules), actuals, balances,
+                  data_kind, source, warnings, tuple(rules), frozenset(replace_ids), actuals, balances,
                   opening_source, ties)

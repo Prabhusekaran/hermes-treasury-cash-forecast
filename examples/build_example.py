@@ -25,14 +25,14 @@ LINES = [
     ("other_receipts", "Other operating receipts (refunds, grants)", "operating", "forecast"),
     ("suppliers_materials", "Payments to suppliers, materials", "operating", "forecast"),
     ("suppliers_services", "Payments to suppliers, services and logistics", "operating", "forecast"),
-    ("net_salaries", "Net salaries", "operating", "known"),
-    ("payroll_taxes", "Payroll taxes and social security", "operating", "known"),
+    ("net_salaries", "Net salaries", "operating", "forecast"),
+    ("payroll_taxes", "Payroll taxes and social security", "operating", "forecast"),
     ("rent_and_leases", "Rent and leases", "operating", "known"),
     ("utilities_insurance", "Utilities and insurance", "operating", "forecast"),
     ("marketing_travel_it", "Marketing, travel and IT", "operating", "forecast"),
     ("vat_payments", "VAT paid to the tax office (net)", "operating", "forecast"),
     ("corporate_tax", "Corporate tax instalments", "operating", "known"),
-    ("management_reserve", "Management contingency", "operating", "assumption"),
+    ("management_reserve", "Management contingency (scenarios only)", "operating", "known"),
     ("capex", "Purchase of equipment and software", "investing", "known"),
     ("asset_disposals", "Proceeds from sale of assets", "investing", "known"),
     ("interest_received", "Interest received", "investing", "known"),
@@ -111,32 +111,32 @@ def main():
     events = []
     for i in range(1, 13):
         month = add_months(ORIGIN, i)
-        rise = month.year == 2027
-        events.append(["net_salaries", ym(month), -292_000 if rise else -283_000, "",
-                       "Contracted salaries; pay rise from January 2027"])
-        events.append(["payroll_taxes", ym(month), -176_000 if rise else -171_000, "",
-                       "Payroll taxes and social security on contracted salaries"])
-        events.append(["rent_and_leases", ym(month), -60_000, "", "Office and warehouse lease"])
+        if i <= 2:      # the next two payroll runs are already fixed; later months come from the model
+            events.append(["net_salaries", ym(month), -286_500 if i == 1 else -288_000, "replace", "",
+                           "Payroll run already approved"])
+            events.append(["payroll_taxes", ym(month), -172_800 if i == 1 else -173_700, "replace", "",
+                           "Payroll taxes on the approved payroll run"])
+        events.append(["rent_and_leases", ym(month), -60_000, "", "", "Office and warehouse lease"])
         if month.month in QUARTER_END:
-            events.append(["corporate_tax", ym(month), -130_000, "", "Assessed quarterly instalment"])
-            events.append(["interest_received", ym(month), 4_000, "", "Interest on deposits"])
+            events.append(["corporate_tax", ym(month), -130_000, "", "", "Assessed quarterly instalment"])
+            events.append(["interest_received", ym(month), 4_000, "", "", "Interest on deposits"])
         if month.month in QUARTER_START:
-            events.append(["loan_repayments", ym(month), -75_000, "", "Term loan, scheduled repayment"])
-            events.append(["interest_paid", ym(month), -18_000, "", "Term loan interest"])
+            events.append(["loan_repayments", ym(month), -75_000, "", "", "Term loan, scheduled repayment"])
+            events.append(["interest_paid", ym(month), -18_000, "", "", "Term loan interest"])
     events += [
-        ["capex", "2026-11", -350_000, "", "Approved production equipment"],
-        ["capex", "2027-05", -220_000, "", "Approved warehouse fit-out"],
-        ["asset_disposals", "2027-02", 40_000, "", "Sale of old forklift fleet, contract signed"],
-        ["dividends", "2027-06", -320_000, "", "Dividend proposed for the annual meeting"],
-        ["receipts_export", "2027-01", 45_000, "", "New export contract, not in the historical run-rate"],
-        ["receipts_export", "2027-02", 45_000, "", "New export contract, not in the historical run-rate"],
-        ["receipts_export", "2027-03", 45_000, "", "New export contract, not in the historical run-rate"],
-        ["loan_drawdowns", "2027-03", 1_000_000, "2026-11",
+        ["capex", "2026-11", -350_000, "", "", "Approved production equipment"],
+        ["capex", "2027-05", -220_000, "", "", "Approved warehouse fit-out"],
+        ["asset_disposals", "2027-02", 40_000, "", "", "Sale of old forklift fleet, contract signed"],
+        ["dividends", "2027-06", -320_000, "", "", "Dividend proposed for the annual meeting"],
+        ["receipts_export", "2027-01", 45_000, "on top", "", "New export contract, not in the historical run-rate"],
+        ["receipts_export", "2027-02", 45_000, "on top", "", "New export contract, not in the historical run-rate"],
+        ["receipts_export", "2027-03", 45_000, "on top", "", "New export contract, not in the historical run-rate"],
+        ["loan_drawdowns", "2027-03", 1_000_000, "", "2026-11",
          "Refinancing drawdown; only agreed in November 2026, so not known at the forecast date"],
     ]
-    write("known_events.csv", ["line_id", "month", "amount", "known_from", "note"], events)
+    write("known_events.csv", ["line_id", "month", "amount", "effect", "known_from", "note"], events)
 
-    write("assumptions.csv", ["scenario", "line_id", "percent", "amount", "from_month", "to_month", "note"], [
+    write("scenarios.csv", ["scenario", "line_id", "percent", "amount", "from_month", "to_month", "note"], [
         ["downside", "receipts_domestic", -4, "", "", "", "Domestic customers pay less and later"],
         ["downside", "receipts_export", -8, "", "", "", "Weaker export demand"],
         ["downside", "suppliers_materials", 4, "", "2027-01", "", "Material prices rise from January"],

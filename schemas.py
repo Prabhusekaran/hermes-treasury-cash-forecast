@@ -3,7 +3,7 @@
 _INPUT_PATH = {
     "type": "string",
     "description": "Path to the filled template: one .xlsx workbook, or a folder holding "
-                   "inputs.csv, lines.csv, history.csv, known_events.csv and assumptions.csv.",
+                   "inputs.csv, lines.csv, history.csv, known_events.csv and scenarios.csv.",
 }
 _MODEL_NAMES = ["ets", "sarima", "baseline", "seasonal_drift", "seasonal_naive",
                 "previous_month", "chronos_2"]
@@ -46,14 +46,15 @@ CASH_FORECAST_RUN = {
     "name": "cash_forecast_run",
     "description": (
         "Run the 12-month monthly direct cash-flow forecast from a filled template. Forecast lines are "
-        "projected by the chosen statistical model, known lines come from the supplied schedule, and "
-        "scenario assumptions (percentages of a line, or fixed amounts) are applied only if a scenario "
-        "is named. Opening cash is the closing cash of the last actual month. The engine reconciles "
-        "opening cash to closing cash to the cent for every month and stops if anything does not tie. "
-        "Returns the monthly cash bridge, the lowest-cash month, any months below zero, the effect of "
-        "the scenario per line, what was left out and why, and the output files: cash_forecast.xlsx "
-        "(the cash-flow statement, actuals then forecast) plus forecast.json, lines.csv, "
-        "cash_bridge.csv and forecast.md. "
+        "projected by the chosen statistical model, known lines come from the supplied schedule, and a "
+        "known amount on a forecast line replaces or adds to the model figure as the user marked it. "
+        "The base case and every scenario in the template (percentages of a line, or fixed amounts) "
+        "are run together. Opening cash is the closing cash of the last actual month. The engine "
+        "reconciles opening cash to closing cash to the cent for every month and stops if anything "
+        "does not tie. Returns, per scenario, final closing cash, the lowest-cash month, any months "
+        "below zero and the effect per line; closing cash by month side by side; what was left out "
+        "and why; and the output: cash_forecast.xlsx (a summary plus one cash-flow statement per "
+        "scenario, actuals then forecast) and an audit folder per scenario. "
         "Report the returned numbers exactly; never recalculate or estimate cash figures yourself."
     ),
     "parameters": {
@@ -63,9 +64,10 @@ CASH_FORECAST_RUN = {
             "model": {"type": "string", "enum": _MODEL_NAMES,
                       "description": "Forecasting model for the forecast lines. Default 'ets' (needs 24 months "
                                      "of history). 'chronos_2' is optional and must already be installed."},
-            "scenario": {"type": "string",
-                         "description": "Name of a scenario from the assumptions table, e.g. 'downside'. "
-                                        "Leave empty for the base case (no assumptions applied)."},
+            "scenarios": {"type": "array", "items": {"type": "string"},
+                          "description": "Scenario names to run next to the base case. Leave out to run "
+                                         "every scenario in the template; pass an empty list for the "
+                                         "base case only."},
             "output_dir": {"type": "string",
                            "description": "Where to save the output files. Default: a "
                                           "'cash_forecast_output' folder next to the input."},
@@ -87,7 +89,8 @@ CASH_FORECAST_COMPARE = {
             "input_path": _INPUT_PATH,
             "models": {"type": "array", "items": {"type": "string", "enum": _MODEL_NAMES},
                        "description": "Models to compare. Default: all six built-in statistical models."},
-            "scenario": {"type": "string", "description": "Optional scenario applied to every run."},
+            "scenario": {"type": "string", "description": "Optional scenario to compare the models on. "
+                                                          "Leave empty for the base case."},
         },
         "required": ["input_path"],
     },

@@ -1,35 +1,35 @@
-line_id,month,amount,known_from,note,event_id
-payroll,2026-10,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_01
-debt_service,2026-10,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_01
-customer_receipts,2026-10,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_01
-payroll,2026-11,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_02
-debt_service,2026-11,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_02
-capex,2026-11,-250000,2026-09,Synthetic approved equipment payment,capex_02
-customer_receipts,2026-11,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_02
-payroll,2026-12,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_03
-debt_service,2026-12,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_03
-taxes,2026-12,-95000,2026-09,Synthetic pre-assessed installment,tax_03
-customer_receipts,2026-12,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_03
-payroll,2027-01,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_04
-debt_service,2027-01,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_04
-payroll,2027-02,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_05
-debt_service,2027-02,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_05
-payroll,2027-03,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_06
-debt_service,2027-03,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_06
-taxes,2027-03,-95000,2026-09,Synthetic pre-assessed installment,tax_06
-payroll,2027-04,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_07
-debt_service,2027-04,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_07
-payroll,2027-05,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_08
-debt_service,2027-05,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_08
-capex,2027-05,-150000,2026-09,Synthetic approved equipment payment,capex_08
-payroll,2027-06,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_09
-debt_service,2027-06,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_09
-taxes,2027-06,-95000,2026-09,Synthetic pre-assessed installment,tax_09
-payroll,2027-07,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_10
-debt_service,2027-07,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_10
-payroll,2027-08,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_11
-debt_service,2027-08,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_11
-payroll,2027-09,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_12
-debt_service,2027-09,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_12
-taxes,2027-09,-95000,2026-09,Synthetic pre-assessed installment,tax_12
-debt_service,2027-03,500000,2026-11,Becomes known later; deliberately excluded at the example origin,future_unconfirmed_funding
+line_id,month,amount,known_from,note,event_id,effect
+payroll,2026-10,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_01,
+debt_service,2026-10,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_01,
+customer_receipts,2026-10,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_01,on top
+payroll,2026-11,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_02,
+debt_service,2026-11,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_02,
+capex,2026-11,-250000,2026-09,Synthetic approved equipment payment,capex_02,
+customer_receipts,2026-11,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_02,on top
+payroll,2026-12,-195000,2026-09,Synthetic contracted monthly payroll schedule,payroll_03,
+debt_service,2026-12,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_03,
+taxes,2026-12,-95000,2026-09,Synthetic pre-assessed installment,tax_03,
+customer_receipts,2026-12,30000,2026-09,Incremental new collections excluded from recurring historical base,new_contract_03,on top
+payroll,2027-01,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_04,
+debt_service,2027-01,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_04,
+payroll,2027-02,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_05,
+debt_service,2027-02,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_05,
+payroll,2027-03,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_06,
+debt_service,2027-03,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_06,
+taxes,2027-03,-95000,2026-09,Synthetic pre-assessed installment,tax_06,
+payroll,2027-04,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_07,
+debt_service,2027-04,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_07,
+payroll,2027-05,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_08,
+debt_service,2027-05,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_08,
+capex,2027-05,-150000,2026-09,Synthetic approved equipment payment,capex_08,
+payroll,2027-06,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_09,
+debt_service,2027-06,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_09,
+taxes,2027-06,-95000,2026-09,Synthetic pre-assessed installment,tax_09,
+payroll,2027-07,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_10,
+debt_service,2027-07,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_10,
+payroll,2027-08,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_11,
+debt_service,2027-08,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_11,
+payroll,2027-09,-199000,2026-09,Synthetic contracted monthly payroll schedule,payroll_12,
+debt_service,2027-09,-35000,2026-09,Synthetic loan principal schedule; no interest reclassification,principal_12,
+taxes,2027-09,-95000,2026-09,Synthetic pre-assessed installment,tax_12,
+debt_service,2027-03,500000,2026-11,Becomes known later; deliberately excluded at the example origin,future_unconfirmed_funding,

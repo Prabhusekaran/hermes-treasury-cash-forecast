@@ -7,14 +7,15 @@ Handlers never raise: every failure comes back as {"success": false, ...}.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 from .engine.cash_flow_orchestration import write_outputs
 from .engine.cash_flow_schema import HORIZON
 from .engine.evaluate import MODEL_REGISTRY
 from .loader import TemplateError, load_inputs
-from .scenarios import run_with_scenario
-from .statement_xlsx import write_statement
+from .scenarios import BASE, run_all
+from .statement_xlsx import write_workbook
 from .template import write_template
 
 DEFAULT_MODEL = "ets"
@@ -76,12 +77,13 @@ def _overview(inputs):
                    "treatment": l.treatment,
                    **({"history_months": months.get(l.line_id, 0)} if l.treatment == "forecast" else {})}
                   for l in lines],
-        "known_events": len(inputs.known_events),
+        "known_amounts": len(inputs.known_events),
+        "model_figure_replaced_by_known_amount": len(inputs.replace_ids),
         "scenarios": inputs.scenarios,
     }
 
 
-def _check_request(inputs, model, scenario):
+def _check_request(inputs, model, scenarios):
     problems = []
     if model not in MODELS:
         problems.append(f"Unknown model '{model}'. Choose one of: {', '.join(MODELS)}.")
@@ -93,15 +95,34 @@ def _check_request(inputs, model, scenario):
                             f"the shortest forecast line has {shortest}. "
                             + (f"Models that can run: {', '.join(usable)}." if usable else
                                "Add more history."))
-    if scenario and scenario not in inputs.scenarios:
-        problems.append(f"Scenario '{scenario}' is not in the assumptions table. "
-                        f"Available: {', '.join(inputs.scenarios) or 'none'}.")
+    for scenario in scenarios:
+        if scenario not in inputs.scenarios:
+            problems.append(f"Scenario '{scenario}' is not in the scenarios table. "
+                            f"Available: {', '.join(inputs.scenarios) or 'none'}.")
     return problems
 
 
-def _run(inputs, model, scenario):
+def _wanted_scenarios(args, inputs):
+    """Scenarios to run next to the base case: the ones asked for, otherwise all of them."""
+    asked = args.get("scenarios")
+    if asked is None and args.get("scenario"):
+        asked = [args["scenario"]]
+    if asked is None:
+        return list(inputs.scenarios)
+    if isinstance(asked, str):
+        asked = [part for part in asked.split(",")]
+    names = [str(name).strip() for name in asked if str(name).strip()]
+    return [name for name in dict.fromkeys(names) if name.lower() not in (BASE, "base case", "none")]
+
+
+def _run(inputs, model, scenarios):
+    """Return (runs, error). Model warnings are not hidden: they are attached as runs['_notes']."""
     try:
-        return run_with_scenario(inputs, model, scenario), None
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            runs = run_all(inputs, model, scenarios)
+        notes = list(dict.fromkeys(f"{w.category.__name__}: {str(w.message).strip()}" for w in caught))
+        return {**runs, "_notes": notes}, None
     except (ImportError, OSError) as exc:
         if model == "chronos_2":
             return None, ("Chronos-2 is not available on this machine. Install the optional package "
@@ -112,27 +133,8 @@ def _run(inputs, model, scenario):
         return None, f"The forecast stopped: {exc}"
 
 
-def _summary(run):
-    months = run.statement.months
-    low = min(months, key=lambda m: m.closing_cash)
-    return {
-        "currency": run.statement.currency,
-        "opening_cash": str(run.statement.opening_cash),
-        "final_closing_cash": str(months[-1].closing_cash),
-        "lowest_closing_cash": {"month": low.month.isoformat(), "amount": str(low.closing_cash)},
-        "months_below_zero": [m.month.isoformat() for m in months if m.closing_cash < 0],
-        "cash_bridge": [{"month": m.month.isoformat(),
-                         "operating": str(m.sections["operating"]),
-                         "investing": str(m.sections["investing"]),
-                         "financing": str(m.sections["financing"]),
-                         "net_movement": str(m.net_cash_movement),
-                         "opening": str(m.opening_cash), "closing": str(m.closing_cash)}
-                        for m in months],
-    }
-
-
 def _scenario_effect(run):
-    """Total 12-month effect of the chosen scenario on each line it touches."""
+    """Total 12-month effect of the scenario on each line it touches."""
     totals = {}
     for month in run.statement.months:
         for line in month.lines:
@@ -142,6 +144,28 @@ def _scenario_effect(run):
     if effect:
         effect["total_effect_on_final_closing_cash"] = str(sum(totals.values()))
     return effect
+
+
+def _summary(run):
+    months = run.statement.months
+    low = min(months, key=lambda m: m.closing_cash)
+    return {
+        "final_closing_cash": str(months[-1].closing_cash),
+        "lowest_closing_cash": {"month": low.month.isoformat(), "amount": str(low.closing_cash)},
+        "months_below_zero": [m.month.isoformat() for m in months if m.closing_cash < 0],
+    }
+
+
+def _bridge(run):
+    return [{"month": m.month.isoformat(),
+             "operating": str(m.sections["operating"]), "investing": str(m.sections["investing"]),
+             "financing": str(m.sections["financing"]), "net_cash_flow": str(m.net_cash_movement),
+             "opening": str(m.opening_cash), "closing": str(m.closing_cash)}
+            for m in run.statement.months]
+
+
+def _folder_name(text):
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in text) or "scenario"
 
 
 # --- handlers -----------------------------------------------------------------
@@ -157,9 +181,11 @@ def cash_forecast_template(args: dict, **kwargs) -> str:
             "contains": "synthetic example company (made-up data)" if args.get("with_example", True)
                         else "empty template",
             "next_step": "Fill the five tables, then call cash_forecast_validate with this path.",
-            "tables": ["inputs", "lines", "history", "known_events", "assumptions"],
+            "tables": ["inputs", "lines", "history", "known_events", "scenarios"],
             "layout": "history is a direct cash-flow statement: opening_cash row, one row per line, "
-                      "closing_cash row. assumptions are percentages (or fixed amounts) per scenario.",
+                      "closing_cash row. Every line_id in 'lines' needs a row in 'history'; known lines "
+                      "need their future amounts in 'known_events'. scenarios are percentages (or fixed "
+                      "amounts) per scenario name.",
         })
     except TemplateError as exc:
         return _fail("The template could not be written.", exc.problems)
@@ -193,41 +219,58 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
         if not path:
             return _fail("input_path is required: the .xlsx workbook or the folder of CSV files.")
         model = (args.get("model") or DEFAULT_MODEL).strip().lower()
-        scenario = (args.get("scenario") or "").strip()
         inputs = load_inputs(path)
-        problems = _check_request(inputs, model, scenario)
+        scenarios = _wanted_scenarios(args, inputs)
+        problems = _check_request(inputs, model, scenarios)
         if problems:
             return _fail("The forecast was not run.", problems)
-        run, error = _run(inputs, model, scenario)
+        runs, error = _run(inputs, model, scenarios)
         if error:
             return _fail(error)
+        model_notes = runs.pop("_notes")
         source = Path(inputs.source)
         default_dir = (source if source.is_dir() else source.parent) / "cash_forecast_output" / \
-            f"{inputs.origin_month:%Y-%m}_{model}_{scenario or 'base'}"
+            f"{inputs.origin_month:%Y-%m}_{model}"
         output_dir = Path(str(args.get("output_dir") or default_dir)).expanduser()
-        files = list(write_outputs(run, output_dir))
+        audit_files = []
+        for name, run in runs.items():
+            audit_files += [str(f) for f in write_outputs(run, output_dir / "audit" / _folder_name(name))]
+        files = []
         try:
-            files.insert(0, write_statement(output_dir / "cash_forecast.xlsx", run, inputs, inputs.warnings))
+            files.append(str(write_workbook(output_dir / "cash_forecast.xlsx", runs, inputs)))
         except ImportError:
             inputs.warnings.append("The Excel statement was not written because 'openpyxl' is not installed.")
+        base = runs[BASE]
+        months = [m.month.isoformat() for m in base.statement.months]
         return _reply({
             "success": True,
-            "model": model, "scenario": scenario or None, "data_kind": inputs.data_kind,
+            "model": model, "data_kind": inputs.data_kind, "currency": inputs.schema.currency,
             "origin_month": inputs.origin_month.isoformat(), "horizon_months": HORIZON,
+            "opening_cash": str(base.statement.opening_cash),
+            "opening_cash_taken_from": inputs.opening_cash_source,
             "reconciled": True,
-            "reconciliation": "Every month: operating + investing + financing = net movement; "
-                              "opening + net movement = closing; closing = next opening. Checked to the cent.",
-            **_summary(run),
-            "model_runs": list(run.model_audit),
-            "left_out_inputs": [{"kind": d.kind, "id": d.input_id, "line_id": d.line_id, "reason": d.reason}
-                                for d in run.statement.excluded_inputs
-                                if d.reason != "scenario_not_selected"],
-            "scenario_effect_by_line": _scenario_effect(run),
-            "other_scenarios_available": [s for s in inputs.scenarios if s != scenario],
+            "reconciliation": "Every month, in every scenario: operating + investing + financing = net cash "
+                              "flow; opening + net cash flow = closing; closing = next opening. Checked to the cent.",
+            "scenarios": {name: {**_summary(run),
+                                 **({"effect_by_line": _scenario_effect(run)} if name != BASE else {})}
+                          for name, run in runs.items()},
+            "closing_cash_by_month": [{"month": month, **{name: str(run.statement.months[i].closing_cash)
+                                                         for name, run in runs.items()}}
+                                      for i, month in enumerate(months)],
+            "base_cash_bridge": _bridge(base),
+            "model_runs": list(base.model_audit),
+            "model_notes": model_notes,
+            "model_figure_replaced_by_known_amount": base.inputs["model_forecast_replaced_by_known_amount"],
+            "left_out_inputs": list({d.input_id: {"kind": d.kind, "id": d.input_id, "line_id": d.line_id,
+                                                  "reason": d.reason}
+                                     for run in runs.values() for d in run.statement.excluded_inputs
+                                     if d.reason != "scenario_not_selected"}.values()),
+            "scenarios_not_run": [s for s in inputs.scenarios if s not in runs],
             "warnings": inputs.warnings,
             "limits": ["Uncertainty ranges exist per line only (Chronos); there is no range for closing cash.",
                        "The forecast is only as good as the history and schedules supplied."],
-            "files": [str(f) for f in files],
+            "main_file": files[0] if files else None,
+            "audit_files": audit_files,
         })
     except TemplateError as exc:
         return _fail("The input has problems. Nothing was forecast.", exc.problems)
@@ -242,36 +285,37 @@ def cash_forecast_compare(args: dict, **kwargs) -> str:
         if not path:
             return _fail("input_path is required: the .xlsx workbook or the folder of CSV files.")
         scenario = (args.get("scenario") or "").strip()
+        if scenario.lower() in (BASE, "base case", "none"):
+            scenario = ""
         requested = args.get("models") or list(SIMPLE_MODELS)
         if isinstance(requested, str):
             requested = [m.strip() for m in requested.split(",") if m.strip()]
         requested = [str(m).strip().lower() for m in requested]
         inputs = load_inputs(path)
         if scenario and scenario not in inputs.scenarios:
-            return _fail("The comparison was not run.", _check_request(inputs, DEFAULT_MODEL, scenario))
+            return _fail("The comparison was not run.", _check_request(inputs, DEFAULT_MODEL, [scenario]))
         results, skipped = [], []
         for model in dict.fromkeys(requested):
-            problems = _check_request(inputs, model, "")
+            problems = _check_request(inputs, model, [])
             if problems:
                 skipped.append({"model": model, "reason": problems[0]})
                 continue
-            run, error = _run(inputs, model, scenario)
+            runs, error = _run(inputs, model, [scenario] if scenario else [])
             if error:
                 skipped.append({"model": model, "reason": error})
                 continue
-            summary = _summary(run)
-            results.append({"model": model, "final_closing_cash": summary["final_closing_cash"],
-                            "lowest_closing_cash": summary["lowest_closing_cash"],
-                            "months_below_zero": summary["months_below_zero"]})
+            notes = runs.pop("_notes")
+            results.append({"model": model, **_summary(runs[scenario or BASE]),
+                            **({"model_notes": notes} if notes else {})})
         if not results:
             return _fail("No model could run.", [s["reason"] for s in skipped])
         closings = [float(r["final_closing_cash"]) for r in results]
         return _reply({
-            "success": True, "scenario": scenario or None,
+            "success": True, "scenario": scenario or BASE,
             "origin_month": inputs.origin_month.isoformat(), "currency": inputs.schema.currency,
             "results": results, "skipped": skipped,
             "spread_of_final_closing_cash": f"{max(closings) - min(closings):.2f}",
-            "how_to_read": "Known schedules and assumptions are identical in every run; only the forecast "
+            "how_to_read": "Known schedules and scenarios are identical in every run; only the forecast "
                            "lines differ. A wide spread means the forecast lines are hard to predict and "
                            "the result depends on the model. This is a comparison, not an accuracy test.",
             "warnings": inputs.warnings,
