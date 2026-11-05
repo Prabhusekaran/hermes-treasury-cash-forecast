@@ -25,12 +25,16 @@ def ets_forecast(history, horizon):
         raise ValueError(f"horizon must be between 1 and {MAX_HORIZON}")
 
     values = underlying_series(history)
+    # Plugin change: starting level, trend and seasonal pattern are computed from the first
+    # years of history ("heuristic") instead of being optimised together with the smoothing
+    # weights ("estimated"). With 36 monthly points the joint optimisation has 17 free values
+    # and lands on different answers after a change of 1 part in 10^12 in the input.
     model = ExponentialSmoothing(
         values,
         trend="add",
         seasonal="add",
         seasonal_periods=12,
-        initialization_method="estimated",
+        initialization_method="heuristic",
     )
     fitted = model.fit(optimized=True, remove_bias=False)
     return [float(value) for value in fitted.forecast(horizon)]

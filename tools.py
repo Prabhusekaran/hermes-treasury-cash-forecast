@@ -37,10 +37,25 @@ SIMPLE_MODELS = ("ets", "sarima", "baseline", "seasonal_drift", "seasonal_naive"
 
 LIBRARIES = {"statsmodels": "the ETS and SARIMA models", "openpyxl": "reading and writing Excel files"}
 RESTART_HINT = ("The plugin's libraries are installed together with the plugin, but a Hermes process that was "
-                "already running only sees them after a restart. Ask the user to restart Hermes "
-                "('hermes gateway restart', or close and reopen the Hermes CLI) and try again. Do not "
-                "'pip install' anything, and do not switch to another model or file format on your own: "
-                "that changes the figures and the output the user asked for.")
+                "already running only sees them after a restart, and Hermes runs more than one process. "
+                "Ask the user to restart the one this chat runs in, on the machine where Hermes is installed: "
+                "for Telegram and scheduled jobs 'hermes gateway restart'; for the Desktop app its backend "
+                "server (the 'hermes serve' process; on a Linux server usually "
+                "'systemctl --user restart hermes-desktop-backend.service'); for the Hermes CLI, close and "
+                "reopen it. Then try again. Do not 'pip install' anything, and do not switch to another "
+                "model or file format on your own: that changes the figures and the output the user asked for.")
+
+
+def _library_versions():
+    import importlib.metadata
+    import sys
+    versions = {"python": sys.version.split()[0]}
+    for name in ("statsmodels", "numpy", "scipy", "openpyxl"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = "not found"
+    return versions
 
 
 def _missing_libraries():
@@ -306,7 +321,8 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             audit_files += [str(f) for f in write_outputs(run, output_dir / "audit" / _folder_name(name))]
         files = []
         try:
-            files.append(str(write_workbook(output_dir / "cash_forecast.xlsx", runs, inputs)))
+            files.append(str(write_workbook(output_dir / "cash_forecast.xlsx", runs, inputs,
+                                            _library_versions())))
         except ImportError:
             inputs.warnings.append("The Excel statement was not written because 'openpyxl' is not installed.")
         base = runs[BASE]
@@ -330,6 +346,7 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             "base_cash_bridge": _bridge(base),
             "model_runs": list(base.model_audit),
             "model_notes": model_notes,
+            "library_versions": _library_versions(),
             "model_figure_replaced_by_known_amount": base.inputs["model_forecast_replaced_by_known_amount"],
             "model_continued_from_known_amounts": base.inputs["model_continued_from_known_amounts"],
             "left_out_inputs": list({d.input_id: {"kind": d.kind, "id": d.input_id, "line_id": d.line_id,
@@ -338,7 +355,9 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
                                      if d.reason != "scenario_not_selected"}.values()),
             "scenarios_not_run": [s for s in inputs.scenarios if s not in runs],
             "warnings": inputs.warnings,
-            "limits": ["Uncertainty ranges exist per line only (Chronos); there is no range for closing cash.",
+            "limits": ["ETS and SARIMA are fitted numerically: another machine or library version can give "
+                       "figures that differ by small amounts. The simple models give identical figures everywhere.",
+                       "Uncertainty ranges exist per line only (Chronos); there is no range for closing cash.",
                        "The forecast is only as good as the history and schedules supplied."],
             "main_file": files[0] if files else None,
             "audit_files": audit_files,

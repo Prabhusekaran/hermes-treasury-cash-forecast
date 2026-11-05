@@ -122,7 +122,7 @@ def left_out_items(runs, inputs):
     return list(items.values())
 
 
-def write_workbook(path, runs, inputs):
+def write_workbook(path, runs, inputs, library_versions=None):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -510,12 +510,16 @@ def write_workbook(path, runs, inputs):
             ["History ties from opening to closing cash",
              {True: "yes", False: "NO, see warnings", None: "not checked"}[inputs.history_ties]],
             ["Minimum cash", "not set" if minimum is None else f"{minimum:,.2f}"],
+            ["Library versions", ", ".join(f"{k} {v}" for k, v in (library_versions or {}).items()) or "not recorded"],
             ["Scenarios in this workbook", ", ".join(_title(n) for n in runs)], [""],
             ["Left out of the forecast"]]
     rows += [[f"{item['line']}, {item['month']}, {item['amount']:,.2f}" if item["amount"] is not None
               else item["line"], item["reason"]] for item in left_out] or [["nothing"]]
     rows += [[""], ["Warnings"]] + ([[w] for w in inputs.warnings] or [["none"]])
-    rows += [[""], ["Limits"], ["There is no uncertainty range for closing cash."],
+    rows += [[""], ["Limits"],
+             ["ETS and SARIMA are fitted numerically. On another machine or with other library versions the "
+              "figures can differ by small amounts; the simple models give identical figures everywhere."],
+             ["There is no uncertainty range for closing cash."],
              ["A forecast is not evidence of accuracy. Compare models and review the scenarios."]]
     for values in rows:
         notes.append(values)

@@ -58,14 +58,20 @@ you for confirmation before anything runs.
 ```
 hermes plugins install Prabhusekaran/hermes-treasury-cash-forecast
 hermes plugins enable treasury-cash-forecast
-hermes gateway restart
 ```
 
 Hermes installs the plugin's two libraries (`statsmodels`, `openpyxl`) with it.
-A Hermes process that was already running only sees new libraries after a
-restart, which is what the third line does. If you only use the Hermes CLI,
-close and reopen it instead. If the plugin ever reports that a library cannot
-be loaded, restart Hermes; do not `pip install` it.
+**Then restart Hermes.** A Hermes process that was already running only sees
+new libraries after a restart, and Hermes runs more than one process:
+
+| You chat through | Restart, on the machine where Hermes is installed |
+|---|---|
+| Telegram or other messaging, scheduled jobs | `hermes gateway restart` |
+| The Desktop app | its backend server, the `hermes serve` process (on a Linux server usually `systemctl --user restart hermes-desktop-backend.service`) |
+| The Hermes CLI | close and reopen it |
+
+If the plugin reports that a library cannot be loaded, this restart is the fix;
+do not `pip install` it.
 
 ## Try it
 
@@ -73,16 +79,16 @@ be loaded, restart Hermes; do not `pip install` it.
 You:    Create the cash forecast example in ~/cash and run it.
 Hermes: (cash_forecast_template -> cash_forecast_validate -> cash_forecast_run)
         Opening cash EUR 1,180,000.00, taken from your September 2026 closing balance.
-        Base case: closing cash stays positive; the low point is EUR 1,002,554.06 in
-        November 2026, the month of the equipment purchase.
+        Base case: closing cash stays positive; the low point is about EUR 1.02
+        million in November 2026, the month of the equipment purchase, and the
+        year ends at about EUR 1.59 million.
         Downside (domestic receipts -4%, export receipts -8%, material prices +4%
         from January, a 20,000 monthly contingency): closing cash is below your
-        minimum of EUR 250,000 from June 2027 and below zero from July, ending
-        at EUR -149,564.86.
-        Upside: EUR 2,031,917.02 at year end.
+        minimum of EUR 250,000 from June 2027 and just below zero in September.
+        Upside: about EUR 2.18 million at year end.
         One item was left out: the EUR 1,000,000 refinancing drawdown, because it
         was only agreed after the forecast date. The "with_refinancing" scenario
-        shows the forecast with it: EUR 2,444,534.20 at year end.
+        shows the forecast with it: exactly EUR 1,000,000 more from March 2027.
 ```
 
 The example is a made-up manufacturer with 20 lines (`examples/synthetic_company`,
@@ -157,6 +163,14 @@ from local files and never downloads it.
 Warnings raised by a model (for example when SARIMA has little data) are not
 hidden. They come back in the result as `model_notes`.
 
+**Same input, same forecast?** The four simple models are plain arithmetic and
+give identical figures on every machine. ETS and SARIMA are fitted by numerical
+optimisation, so another machine or library version can give figures that
+differ by small amounts; the library versions are recorded in the result. ETS
+in this plugin starts from a level, trend and seasonal pattern computed from
+the first years of history, which keeps those differences to a few currency
+units on the example (see `engine/__init__.py`, change 5, for why).
+
 ## Outputs
 
 `cash_forecast.xlsx` is the main result:
@@ -209,8 +223,9 @@ By default everything is saved in `cash_forecast_output/` next to your input.
 [Treasury-AI-Lab](https://github.com/Prabhusekaran/Treasury-AI-Lab), tag
 `v0.1-generic-12m-cash-forecast`. That project validated it on synthetic data
 only: a 17-fold rolling benchmark of eight models and ten stress scenarios. The
-four small changes made to the copy are listed in `engine/__init__.py`. The
-plugin's tests confirm that the lab's own example still produces the lab's own
+five changes made to the copy are listed in `engine/__init__.py`; one of them
+changes how ETS is started. The plugin's tests confirm that, for the
+deterministic models, the lab's own example still produces the lab's own
 figures.
 
 No claim is made about accuracy on any real company.

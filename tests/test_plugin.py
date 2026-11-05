@@ -107,11 +107,14 @@ def test_manifest_declares_exactly_the_registered_tools():
 # --- the numbers match Treasury-AI-Lab -------------------------------------------
 # Reference values produced by Treasury-AI-Lab at tag v0.1 with
 #   python -m treasury_lab.synthetic_cash_flow --model <model> --scenario downside
-LAB_DOWNSIDE_CLOSING = {"ets": "3121307.62", "baseline": "3151576.06"}
-# First three rows of the lab's cash_bridge.csv for ETS, downside.
-LAB_ETS_BRIDGE = [("2026-10-01", "227293.52", "0.00", "-35000.00", "192293.52", "1500000.00", "1692293.52"),
-                  ("2026-11-01", "247478.29", "-250000.00", "-35000.00", "-37521.71", "1692293.52", "1654771.81"),
-                  ("2026-12-01", "243670.82", "0.00", "-35000.00", "208670.82", "1654771.81", "1863442.63")]
+# Only the deterministic models are compared: they give the same figures on every machine. ETS is not
+# in this list because the plugin starts it differently from the lab (see engine/__init__.py, change 5).
+LAB_DOWNSIDE_CLOSING = {"baseline": "3151576.06", "seasonal_drift": "3090164.17",
+                        "seasonal_naive": "2721509.05", "previous_month": "2948596.68"}
+# First three rows of the lab's cash_bridge.csv for the baseline model, downside.
+LAB_BASELINE_BRIDGE = [("2026-10-01", "232421.83", "0.00", "-35000.00", "197421.83", "1500000.00", "1697421.83"),
+                       ("2026-11-01", "251892.86", "-250000.00", "-35000.00", "-33107.14", "1697421.83", "1664314.69"),
+                       ("2026-12-01", "248311.54", "0.00", "-35000.00", "213311.54", "1664314.69", "1877626.23")]
 
 
 @pytest.mark.parametrize("model", list(LAB_DOWNSIDE_CLOSING))
@@ -128,10 +131,10 @@ def test_lab_example_reproduces_the_lab_result(company, model):
 
 
 def test_lab_cash_bridge_matches_row_for_row(company):
-    rows = audit_rows(run(company), "downside", "cash_bridge.csv")
+    rows = audit_rows(run(company, model="baseline"), "downside", "cash_bridge.csv")
     got = [(r["month"], r["operating"], r["investing"], r["financing"], r["net_cash_movement"],
             r["opening_cash"], r["closing_cash"]) for r in rows[:3]]
-    assert got == LAB_ETS_BRIDGE
+    assert got == LAB_BASELINE_BRIDGE
 
 
 def test_lab_base_case_applies_no_scenario(company):
@@ -162,6 +165,17 @@ def test_old_table_names_are_still_read(company):
     assert result["success"] and result["scenarios"] == ["downside"]
 
 
+# --- the same input gives the same forecast ------------------------------------------------
+def test_ets_forecast_does_not_jump_when_the_input_changes_by_a_rounding_error(example):
+    """Guards the fix from the first live test, where two machines disagreed by 100,000 on closing cash."""
+    before = run(example)["scenarios"]["base"]["final_closing_cash"]
+    def nudge(rows):
+        return [rows[0]] + [r[:4] + [repr(float(v) * (1 + 1e-12)) if v else v for v in r[4:]] for r in rows[1:]]
+    edit(example, "history", nudge)
+    after = run(example)["scenarios"]["base"]["final_closing_cash"]
+    assert abs(Decimal(after) - Decimal(before)) < Decimal("25")
+
+
 # --- reconciliation --------------------------------------------------------------
 def test_every_scenario_ties_to_the_cent(example):
     result = run(example)
@@ -185,7 +199,7 @@ def test_shipped_example_tells_the_intended_story(example):
     assert result["opening_cash_taken_from"] == "history closing_cash row"
     assert base["months_below_zero"] == [] and up["months_below_zero"] == []
     assert base["lowest_closing_cash"]["month"] == "2026-11-01"        # the equipment purchase
-    assert down["months_below_zero"] == ["2027-07-01", "2027-08-01", "2027-09-01"]
+    assert down["months_below_zero"] == ["2027-09-01"]
     assert down["months_below_minimum_cash"] == ["2027-06-01", "2027-07-01", "2027-08-01", "2027-09-01"]
     assert base["months_below_minimum_cash"] == [] and result["minimum_cash"] == "250000.00"
     assert Decimal(up["final_closing_cash"]) > Decimal(base["final_closing_cash"]) > Decimal(down["final_closing_cash"])
@@ -574,7 +588,7 @@ def test_workbook_has_a_summary_and_one_statement_per_scenario(example):
     for column, scenario in enumerate(("base", "downside", "upside"), start=1):
         assert summary["Final closing cash"][column] == pytest.approx(
             float(result["scenarios"][scenario]["final_closing_cash"]))
-    assert summary["Months with closing cash below zero"][1:4] == ("none", "2027-07 to 2027-09", "none")
+    assert summary["Months with closing cash below zero"][1:4] == ("none", "2027-09", "none")
     assert summary["Months below your minimum cash of 250,000.00"][1:4] == ("none", "2027-06 to 2027-09", "none")
     assert summary["Loan drawdowns"][1:4] == ("2027-03", 1000000, "only known after the forecast date "
                                                                   "(known from 2026-11)")
@@ -655,6 +669,14 @@ def test_excel_template_has_the_reminder_and_dropdowns(tmp_path):
 
 
 # --- libraries not visible to a Hermes process that was not restarted ----------------------
+def test_library_versions_are_reported(example):
+    from openpyxl import load_workbook
+    result = run(example)
+    assert set(result["library_versions"]) == {"python", "statsmodels", "numpy", "scipy", "openpyxl"}
+    notes = {row[0]: row[1] for row in load_workbook(result["main_file"])["Notes"].iter_rows(values_only=True) if row[0]}
+    assert "statsmodels" in notes["Library versions"] and "numpy" in notes["Library versions"]
+
+
 def test_missing_model_library_asks_for_a_restart_and_does_not_fall_back(example, monkeypatch):
     monkeypatch.setattr(tools, "_missing_libraries", lambda: ["statsmodels"])
     import sys
@@ -663,6 +685,7 @@ def test_missing_model_library_asks_for_a_restart_and_does_not_fall_back(example
     assert checked["success"] and checked["ready_to_run"] is False
     assert checked["libraries_missing_in_this_session"] == ["statsmodels"]
     assert "hermes gateway restart" in checked["warnings"][0] and "Stop" in checked["next_step"]
+    assert "Desktop app" in checked["warnings"][0] and "hermes serve" in checked["warnings"][0]
     result = call(tools.cash_forecast_run, input_path=str(example))
     assert result["success"] is False
     assert "hermes gateway restart" in result["error"] and "pip install" in result["error"]

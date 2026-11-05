@@ -169,8 +169,9 @@ def _read_workbook(path):
     except ImportError as exc:
         raise TemplateError(["Hermes cannot load 'openpyxl' (reading Excel files) in this session. The library "
                              "is installed with the plugin, but a Hermes process that was already running only "
-                             "sees it after a restart: 'hermes gateway restart', or close and reopen the Hermes "
-                             "CLI. Do not 'pip install' it."]) from exc
+                             "sees it after a restart: 'hermes gateway restart' for Telegram and scheduled jobs, "
+                             "the backend server ('hermes serve') for the Desktop app, or close and reopen the "
+                             "Hermes CLI. Do not 'pip install' it."]) from exc
     _check_size(path)
     book = load_workbook(path, read_only=True, data_only=True)
     try:
