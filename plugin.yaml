@@ -1,0 +1,24 @@
+name: treasury-cash-forecast
+label: Treasury Cash Forecast
+kind: standalone
+version: 0.1.0
+author: Prabhusekaran Muthappan
+license: MIT
+homepage: https://github.com/Prabhusekaran/hermes-treasury-cash-forecast
+description: >
+  A 12-month monthly cash-flow forecast for corporate treasury. Fill a template
+  (Excel or CSV) with your cash-flow lines, history, known schedules and
+  scenario assumptions. Forecast lines are projected by a statistical model
+  (ETS by default; SARIMA, four simple baselines, optional Chronos-2), known
+  lines come from your schedule, and assumptions apply only when you pick a
+  scenario. Every month is reconciled to the cent: opening cash + net movement
+  = closing cash. The numbers come from a tested engine, not from the language
+  model. No network calls, no credentials.
+tags: [finance, treasury, forecasting]
+requires_hermes: ">=0.22.2"
+provides_tools:
+  - cash_forecast_template
+  - cash_forecast_validate
+  - cash_forecast_run
+  - cash_forecast_compare
+provides_hooks: []

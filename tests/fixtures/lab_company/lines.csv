@@ -1,0 +1,8 @@
+line_id,label,section,treatment
+customer_receipts,Customer collections,operating,forecast
+supplier_payments,Supplier payments,operating,forecast
+payroll,Contractual payroll,operating,known
+taxes,Pre-assessed tax payments,operating,known
+capex,Approved capital expenditure,investing,known
+debt_service,Contractual loan principal repayments,financing,known
+management_reserve,Management contingency,operating,assumption

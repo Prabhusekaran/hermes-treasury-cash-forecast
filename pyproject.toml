@@ -1,0 +1,17 @@
+[project]
+name = "hermes-treasury-cash-forecast"
+version = "0.1.0"
+description = "12-month monthly cash-flow forecast with cent-exact reconciliation, for Hermes Agent"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Prabhusekaran Muthappan" }]
+requires-python = ">=3.11"
+dependencies = [
+  # ETS and SARIMA models.
+  "statsmodels>=0.14,<1",
+  # Reading and writing the Excel template.
+  "openpyxl>=3.1,<4",
+]
+
+[project.urls]
+Homepage = "https://github.com/Prabhusekaran/hermes-treasury-cash-forecast"

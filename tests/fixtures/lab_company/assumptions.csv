@@ -1,0 +1,26 @@
+scenario,line_id,month,amount,available_from,note,assumption_id
+downside,customer_receipts,2026-10,-25000,2026-09,Explicit monthly collections reduction,collections_downside_01
+downside,management_reserve,2026-10,-12000,2026-09,Explicit contingency payment,contingency_01
+downside,customer_receipts,2026-11,-25000,2026-09,Explicit monthly collections reduction,collections_downside_02
+downside,management_reserve,2026-11,-12000,2026-09,Explicit contingency payment,contingency_02
+downside,customer_receipts,2026-12,-25000,2026-09,Explicit monthly collections reduction,collections_downside_03
+downside,management_reserve,2026-12,-12000,2026-09,Explicit contingency payment,contingency_03
+downside,customer_receipts,2027-01,-25000,2026-09,Explicit monthly collections reduction,collections_downside_04
+downside,management_reserve,2027-01,-12000,2026-09,Explicit contingency payment,contingency_04
+downside,customer_receipts,2027-02,-25000,2026-09,Explicit monthly collections reduction,collections_downside_05
+downside,management_reserve,2027-02,-12000,2026-09,Explicit contingency payment,contingency_05
+downside,customer_receipts,2027-03,-25000,2026-09,Explicit monthly collections reduction,collections_downside_06
+downside,management_reserve,2027-03,-12000,2026-09,Explicit contingency payment,contingency_06
+downside,customer_receipts,2027-04,-25000,2026-09,Explicit monthly collections reduction,collections_downside_07
+downside,management_reserve,2027-04,-12000,2026-09,Explicit contingency payment,contingency_07
+downside,customer_receipts,2027-05,-25000,2026-09,Explicit monthly collections reduction,collections_downside_08
+downside,management_reserve,2027-05,-12000,2026-09,Explicit contingency payment,contingency_08
+downside,customer_receipts,2027-06,-25000,2026-09,Explicit monthly collections reduction,collections_downside_09
+downside,management_reserve,2027-06,-12000,2026-09,Explicit contingency payment,contingency_09
+downside,customer_receipts,2027-07,-25000,2026-09,Explicit monthly collections reduction,collections_downside_10
+downside,management_reserve,2027-07,-12000,2026-09,Explicit contingency payment,contingency_10
+downside,customer_receipts,2027-08,-25000,2026-09,Explicit monthly collections reduction,collections_downside_11
+downside,management_reserve,2027-08,-12000,2026-09,Explicit contingency payment,contingency_11
+downside,customer_receipts,2027-09,-25000,2026-09,Explicit monthly collections reduction,collections_downside_12
+downside,management_reserve,2027-09,-12000,2026-09,Explicit contingency payment,contingency_12
+downside,management_reserve,2027-02,-80000,2026-11,Later management revision; deliberately excluded at the example origin,future_plan_revision

@@ -1,0 +1,44 @@
+line_id,month,amount,known_from,note
+payroll,2026-10,-452000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2026-10,-60000,,Office lease
+loan_repayments,2026-10,-75000,,"Term loan, scheduled repayment"
+interest_paid,2026-10,-18000,,Term loan interest
+payroll,2026-11,-452000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2026-11,-60000,,Office lease
+payroll,2026-12,-452000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2026-12,-60000,,Office lease
+corporate_tax,2026-12,-130000,,Assessed quarterly instalment
+payroll,2027-01,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-01,-60000,,Office lease
+loan_repayments,2027-01,-75000,,"Term loan, scheduled repayment"
+interest_paid,2027-01,-18000,,Term loan interest
+payroll,2027-02,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-02,-60000,,Office lease
+payroll,2027-03,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-03,-60000,,Office lease
+corporate_tax,2027-03,-130000,,Assessed quarterly instalment
+payroll,2027-04,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-04,-60000,,Office lease
+loan_repayments,2027-04,-75000,,"Term loan, scheduled repayment"
+interest_paid,2027-04,-18000,,Term loan interest
+payroll,2027-05,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-05,-60000,,Office lease
+payroll,2027-06,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-06,-60000,,Office lease
+corporate_tax,2027-06,-130000,,Assessed quarterly instalment
+payroll,2027-07,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-07,-60000,,Office lease
+loan_repayments,2027-07,-75000,,"Term loan, scheduled repayment"
+interest_paid,2027-07,-18000,,Term loan interest
+payroll,2027-08,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-08,-60000,,Office lease
+payroll,2027-09,-466000,,Contracted payroll; pay rise from January 2027
+rent_and_leases,2027-09,-60000,,Office lease
+corporate_tax,2027-09,-130000,,Assessed quarterly instalment
+capex,2026-11,-350000,,Approved production equipment
+capex,2027-05,-220000,,Approved warehouse fit-out
+dividends,2027-06,-320000,,Dividend proposed for the annual meeting
+customer_receipts,2027-01,45000,,"New customer contract, not in the historical run-rate"
+customer_receipts,2027-02,45000,,"New customer contract, not in the historical run-rate"
+customer_receipts,2027-03,45000,,"New customer contract, not in the historical run-rate"
+loan_repayments,2027-03,1000000,2026-11,"Refinancing drawdown; only agreed in November 2026, so not known at the forecast date"
