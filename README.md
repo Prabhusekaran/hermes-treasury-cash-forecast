@@ -1,5 +1,7 @@
 # Treasury Cash Forecast for Hermes Agent
 
+![Treasury Cash Forecast: closing cash for the next 12 months, base case against downside, with the minimum cash line](docs/cover.png)
+
 A 12-month monthly cash-flow forecast for corporate treasury, as a Hermes plugin.
 
 It uses the direct method: receipts and payments by type, from opening cash to
