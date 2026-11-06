@@ -86,6 +86,9 @@ Hermes: (cash_forecast_template -> cash_forecast_validate -> cash_forecast_run)
         from January, a 20,000 monthly contingency): closing cash is below your
         minimum of EUR 250,000 from June 2027 and just below zero in September.
         Upside: about EUR 2.18 million at year end.
+        Customer pays late (EUR 300,000 of export receipts arrives in July
+        instead of June): the year ends on the same balance, but the lowest
+        month moves from November 2026 to June 2027.
         One item was left out: the EUR 1,000,000 refinancing drawdown, because it
         was only agreed after the forecast date. The "with_refinancing" scenario
         shows the forecast with it: exactly EUR 1,000,000 more from March 2027.
@@ -122,8 +125,9 @@ On a known line there is no model figure, so `effect` is ignored.
 receipts means 4% lower receipts, `4` on supplier payments means 4% higher
 payments. The percentage is taken from the line's base-case figure for that
 month. Leave `from_month` and `to_month` empty for all 12 months. Use `amount`
-for a fixed monthly sum, such as a contingency. Every scenario is run and shown
-next to the base case.
+for a fixed monthly sum, such as a contingency. A payment that arrives late is
+two `amount` rows: minus the amount in the month it was due, plus the amount in
+the month it arrives. Every scenario is run and shown next to the base case.
 
 **`known_from`** is the month you learned about an item. An amount learned
 after `origin_month` is left out of every scenario and listed on the Summary
@@ -150,7 +154,7 @@ before entering your own.
 | Model | Needs | Notes |
 |---|---|---|
 | `ets` (default) | 24 months | Holt-Winters, additive trend and seasonality |
-| `sarima` | 36 months | Fixed (1,1,0)x(0,1,1,12) |
+| `sarima` | 36 months | Fixed (1,1,0)x(0,1,1,12); most reliable with five or more years of history |
 | `baseline`, `seasonal_drift` | 24 months | Simple, transparent |
 | `seasonal_naive` | 12 months | Same month last year |
 | `previous_month` | 1 month | Sanity check |

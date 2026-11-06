@@ -24,7 +24,7 @@ DEFAULT_MODEL = "ets"
 # TiRex-2 is in the engine but not offered: it needs a compiler toolchain most users lack.
 MODELS = {
     "ets": "Holt-Winters exponential smoothing (trend + yearly seasonality). Default.",
-    "sarima": "Seasonal ARIMA with a fixed specification.",
+    "sarima": "Seasonal ARIMA with a fixed specification. Most reliable with five or more years of history.",
     "baseline": "Seasonal level plus linear trend.",
     "seasonal_drift": "Same month last year plus the average yearly change.",
     "seasonal_naive": "Same month last year.",

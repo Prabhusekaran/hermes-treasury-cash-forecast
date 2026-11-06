@@ -148,6 +148,10 @@ def main():
         ["upside", "receipts_export", 5, "", "2027-01", "", "New distributor from January 2027"],
         ["with_refinancing", "loan_drawdowns", "", 1_000_000, "2027-03", "2027-03",
          "Refinancing drawdown, if it is agreed as expected"],
+        ["customer_pays_late", "receipts_export", "", -300_000, "2027-06", "2027-06",
+         "Largest export customer pays one month late: missing in June"],
+        ["customer_pays_late", "receipts_export", "", 300_000, "2027-07", "2027-07",
+         "Largest export customer pays one month late: arrives in July"],
     ])
 
 

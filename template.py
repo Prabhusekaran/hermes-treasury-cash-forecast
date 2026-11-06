@@ -60,6 +60,8 @@ INSTRUCTIONS = [
                   "supplier payments means 4% higher payments. Type -4, not a percentage-formatted cell. "
                   "Use amount (per month) for a fixed sum, such as a contingency. "
                   "from_month and to_month are optional; empty means all 12 forecast months. "
+                  "A payment that arrives late is two amount rows: minus the amount in the month it "
+                  "was due, plus the amount in the month it arrives. "
                   "The base case ignores this sheet. Every scenario is run and shown next to the base case."],
     [""],
     ["Before you run", ""],

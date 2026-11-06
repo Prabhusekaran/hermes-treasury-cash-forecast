@@ -193,7 +193,7 @@ def test_every_scenario_ties_to_the_cent(example):
 # --- the shipped example ----------------------------------------------------------
 def test_shipped_example_tells_the_intended_story(example):
     result = run(example)
-    assert list(result["scenarios"]) == ["base", "downside", "upside", "with_refinancing"]
+    assert list(result["scenarios"]) == ["base", "customer_pays_late", "downside", "upside", "with_refinancing"]
     base, down, up = (result["scenarios"][n] for n in ("base", "downside", "upside"))
     assert result["opening_cash"] == "1180000.00"
     assert result["opening_cash_taken_from"] == "history closing_cash row"
@@ -207,14 +207,15 @@ def test_shipped_example_tells_the_intended_story(example):
     (left_out,) = result["left_out_inputs"]
     assert left_out["line_id"] == "loan_drawdowns" and left_out["reason"] == "not_known_at_origin"
     assert len(result["closing_cash_by_month"]) == 12
-    assert set(result["closing_cash_by_month"][0]) == {"month", "base", "downside", "upside", "with_refinancing"}
+    assert set(result["closing_cash_by_month"][0]) == {"month", "base", "customer_pays_late", "downside", "upside",
+                                                       "with_refinancing"}
 
 
 def test_template_round_trip_csv(tmp_path):
     made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="csv")
     checked = call(tools.cash_forecast_validate, input_path=made["path"])
     assert checked["success"] and checked["ready_to_run"]
-    assert checked["scenarios"] == ["downside", "upside", "with_refinancing"]
+    assert checked["scenarios"] == ["customer_pays_late", "downside", "upside", "with_refinancing"]
     assert checked["model_chosen_in_inputs"] == "ets" and checked["minimum_cash"] == "250000.00"
     assert checked["shortest_forecast_history_months"] == 36
     assert len(checked["lines"]) == 20
@@ -352,7 +353,7 @@ def test_scenarios_do_not_change_the_model_or_the_schedule(example):
 def test_only_the_scenarios_asked_for_are_run(example):
     result = run(example, scenarios=["upside"])
     assert list(result["scenarios"]) == ["base", "upside"]
-    assert result["scenarios_not_run"] == ["downside", "with_refinancing"]
+    assert result["scenarios_not_run"] == ["customer_pays_late", "downside", "with_refinancing"]
     assert list(run(example, scenarios=[])["scenarios"]) == ["base"]
     assert list(run(example, scenario="downside")["scenarios"]) == ["base", "downside"]
 
@@ -379,6 +380,18 @@ def test_percent_sign_and_decimal_comma_are_read(example):
     edit(example, "scenarios", lambda rows: rows + [["mild", "receipts_export", "-2,5 %", "", "", "", ""]])
     result = run(example, scenarios=["mild"])
     assert Decimal(result["scenarios"]["mild"]["effect_by_line"]["receipts_export"]) < 0
+
+
+def test_a_late_payment_moves_cash_between_months_but_not_the_year_end(example):
+    result = run(example)
+    late = result["scenarios"]["customer_pays_late"]
+    assert late["final_closing_cash"] == result["scenarios"]["base"]["final_closing_cash"]
+    assert result["scenarios"]["base"]["lowest_closing_cash"]["month"] == "2026-11-01"
+    assert late["lowest_closing_cash"]["month"] == "2027-06-01"        # the low point moves to June
+    for row in result["closing_cash_by_month"]:
+        difference = Decimal(row["customer_pays_late"]) - Decimal(row["base"])
+        assert difference == (Decimal("-300000.00") if row["month"] == "2027-06-01" else 0)
+    assert Decimal(late["effect_by_line"]["total_effect_on_final_closing_cash"]) == 0
 
 
 def test_a_left_out_amount_can_be_added_back_as_a_scenario(example):
@@ -468,7 +481,7 @@ def test_recap_lists_known_amounts_and_scenarios_per_line(example):
     assert lines["capex"]["known_amounts"] == 2 and lines["capex"]["known_total"] == "-570000.00"
     assert lines["net_salaries"]["known_amounts_replacing_the_model"] == 2
     assert lines["receipts_export"]["known_amounts_on_top_of_the_model"] == 3
-    assert lines["receipts_export"]["scenarios"] == ["downside", "upside"]
+    assert lines["receipts_export"]["scenarios"] == ["customer_pays_late", "downside", "upside"]
     assert "known_amounts" not in lines["loan_drawdowns"]            # its only amount is not yet known
     assert "still apply" in result["check_with_the_user"]
 
@@ -581,15 +594,15 @@ def test_workbook_has_a_summary_and_one_statement_per_scenario(example):
     from openpyxl import load_workbook
     result = run(example)
     book = load_workbook(result["main_file"])
-    assert book.sheetnames == ["Summary", "How this is built", "Base case", "downside", "upside",
-                               "with_refinancing", "Where numbers come from", "Notes"]
+    assert book.sheetnames == ["Summary", "How this is built", "Base case", "customer_pays_late", "downside",
+                               "upside", "with_refinancing", "Where numbers come from", "Notes"]
     summary = {row[0]: row for row in book["Summary"].iter_rows(values_only=True) if row[0]}
-    assert summary["Closing cash by month"][1:4] == ("Base case", "downside", "upside")
-    for column, scenario in enumerate(("base", "downside", "upside"), start=1):
+    assert summary["Closing cash by month"][1:5] == ("Base case", "customer_pays_late", "downside", "upside")
+    for column, scenario in enumerate(("base", "customer_pays_late", "downside", "upside"), start=1):
         assert summary["Final closing cash"][column] == pytest.approx(
             float(result["scenarios"][scenario]["final_closing_cash"]))
-    assert summary["Months with closing cash below zero"][1:4] == ("none", "2027-09", "none")
-    assert summary["Months below your minimum cash of 250,000.00"][1:4] == ("none", "2027-06 to 2027-09", "none")
+    assert summary["Months with closing cash below zero"][1:5] == ("none", "none", "2027-09", "none")
+    assert summary["Months below your minimum cash of 250,000.00"][1:5] == ("none", "none", "2027-06 to 2027-09", "none")
     assert summary["Loan drawdowns"][1:4] == ("2027-03", 1000000, "only known after the forecast date "
                                                                   "(known from 2026-11)")
     how = " ".join(str(row[1]) for row in book["How this is built"].iter_rows(values_only=True) if row[1])
