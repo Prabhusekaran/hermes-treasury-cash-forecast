@@ -46,7 +46,7 @@ If anything does not tie, the run stops and nothing is written.
 
 | Tool | What it does |
 |---|---|
-| `cash_forecast_template` | Writes the template (Excel or CSV), with a made-up example company or empty |
+| `cash_forecast_template` | Writes the template (Excel or CSV), with a made-up example company (a manufacturer or a hotel) or empty |
 | `cash_forecast_validate` | Checks a filled template and lists every problem and warning in plain language |
 | `cash_forecast_run` | Runs the base case and every scenario, reconciles them, saves the Excel workbook and the audit files |
 | `cash_forecast_compare` | Runs several models on the same inputs and shows how far the results differ |
@@ -99,6 +99,35 @@ Hermes: (cash_forecast_template -> cash_forecast_validate -> cash_forecast_run)
 The example is a made-up manufacturer with 20 lines (`examples/synthetic_company`,
 rebuilt by `examples/build_example.py`). Your own file can have as many lines as
 you need.
+
+### A second example: a hotel
+
+Ask for the hotel example to see a business whose cash is seasonal:
+
+```
+You:    Create the hotel cash forecast example in ~/hotel and run it.
+Hermes: (cash_forecast_template with example "hotel" -> cash_forecast_validate -> cash_forecast_run)
+        Opening cash EUR 690,000.00, the closing balance of October 2026, the
+        end of the season.
+        Base case: the hotel gets through the winter. Cash falls to about
+        EUR 181,000 in March 2027, above your minimum of EUR 150,000, and is
+        back at about EUR 766,000 by October 2027.
+        Weak season (direct bookings -8%, channel bookings -12%, energy +10%):
+        cash is below the minimum from February to June and below zero in
+        March and April.
+        Weak season with a credit line (EUR 250,000 drawn in January, repaid in
+        July): no month below the minimum. The credit line costs EUR 7,800 of
+        interest, so the year ends EUR 7,800 lower than the weak season alone.
+        One item was left out: a EUR 38,000 energy cost refund, confirmed only
+        after the forecast date.
+```
+
+The hotel is one invented 110-room property with 26 lines
+(`examples/synthetic_hotel`, rebuilt by `examples/build_hotel_example.py`):
+room receipts split into direct and online-channel bookings, commissions paid
+to the channels, permanent and seasonal staff, a property lease, an annual
+insurance premium, a winter refurbishment and a seasonal credit line. No figure
+comes from a real hotel.
 
 ## The template
 
@@ -181,9 +210,13 @@ units on the example (see `engine/__init__.py`, change 5, for why).
 
 `cash_forecast.xlsx` is the main result:
 
-- **Summary:** closing cash by month for the base case and every scenario, the
-  lowest point, any month below zero or below your minimum cash, what was left
-  out and why, and what each scenario changes.
+- **Summary:** first the forecast identity (plugin version, date and time of
+  the run with its time zone, the model and its settings, the name of your
+  input and a fingerprint of its content, library versions), then closing cash
+  by month for the base case and every scenario, the lowest point, any month
+  below zero or below your minimum cash, what was left out and why, and what
+  each scenario changes, with the row of your `scenarios` sheet behind each
+  change.
 - **How this is built:** one page in plain language for a reader who is not
   technical: the starting balance, what the model does, what comes from your
   schedule, how scenarios are applied, and what the forecast does not tell you.
@@ -195,9 +228,20 @@ units on the example (see `engine/__init__.py`, change 5, for why).
   known amount, model plus your amount on top, or changed by the scenario.
   Amounts are shown to the cent.
 - **Where numbers come from:** for every forecast figure, the model part, the
-  known part and the scenario part, and the model's own figure where your
-  known amount replaced it.
-- **Notes:** what was left out and why, and the warnings.
+  known part and the scenario part, the model's own figure where your known
+  amount replaced it, and a **Source row** column naming the rows of your input
+  that produced it, for example `history row 4; known_events row 39; scenarios
+  row 4`. These are the row numbers Excel shows on that sheet of your template
+  (or the line of the CSV file), so a figure can be traced without the chat.
+- **Notes:** the forecast identity again, what was left out and why, and the
+  warnings.
+
+**The input fingerprint** is the first 12 characters of a SHA-256 checksum of
+the headings and cells of your input tables. The same content gives the same
+fingerprint, whether it is a workbook or a folder of CSV files and however
+often the file is saved; any changed cell gives a different one. Two people can
+compare it to confirm they are looking at a forecast of the same input.
+`cash_forecast_validate` reports it before anything is run.
 
 An `audit/<scenario>/` folder holds four files per scenario: `forecast.md`
 (readable report), `cash_bridge.csv` (monthly totals), `lines.csv` (every line
@@ -206,6 +250,19 @@ per line, the model's original figures where a known amount replaced them,
 items left out and why, file hashes).
 
 By default everything is saved in `cash_forecast_output/` next to your input.
+
+## What changed in 0.2.0
+
+- **Source row.** Every forecast figure, every scenario change and every
+  left-out amount names the row of the input it came from.
+- **Row numbers are the ones you see.** Messages such as `scenarios row 7` now
+  count rows the way Excel does, including the reminder row at the top of the
+  example sheets and any empty rows.
+- **Forecast identity** at the top of the Summary sheet, in Notes and in the
+  tool result.
+- **A second example company**, a hotel with seasonal cash.
+- No forecast figure changed: the manufacturer example gives the same numbers
+  as in 0.1.0.
 
 ## Limits
 

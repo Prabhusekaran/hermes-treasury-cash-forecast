@@ -1,7 +1,7 @@
 name: treasury-cash-forecast
 label: Treasury Cash Forecast
 kind: standalone
-version: 0.1.0
+version: 0.2.0
 author: Prabhusekaran Muthappan
 license: MIT
 homepage: https://github.com/Prabhusekaran/hermes-treasury-cash-forecast
@@ -14,8 +14,11 @@ description: >
   replace the model for single months. The result is one Excel workbook: a
   summary of the base case against every scenario and a cash-flow statement
   per scenario, actuals then forecast, reconciled to the cent every month:
-  opening cash + net cash flow = closing cash. The numbers come from a tested
-  engine, not from the language model. No network calls, no credentials.
+  opening cash + net cash flow = closing cash. Every forecast figure names the
+  row of your input it came from, and the workbook states which run and which
+  input produced it. Two made-up example companies are included, a
+  manufacturer and a hotel. The numbers come from a tested engine, not from
+  the language model. No network calls, no credentials.
 tags: [finance, treasury, forecasting]
 requires_hermes: ">=0.22.2"
 provides_tools:

@@ -744,3 +744,239 @@ def test_handlers_never_raise(handler, args):
 
 def test_tirex_is_not_offered(example):
     assert call(tools.cash_forecast_run, input_path=str(example), model="tirex_2")["success"] is False
+
+
+# --- 0.2.0: every figure can be traced to the row of the input it came from ---------------------
+def detail_rows(result):
+    from openpyxl import load_workbook
+    rows = list(load_workbook(result["main_file"])["Where numbers come from"].iter_rows(values_only=True))
+    assert rows[0][-1] == "Source row"
+    return {(r[0], r[1], r[2]): r[-1] for r in rows[1:]}
+
+
+def csv_row(folder, table, number):
+    """Row `number` of a CSV file, counted the way a spreadsheet shows it (1 = the headings)."""
+    with (folder / f"{table}.csv").open(newline="", encoding="utf-8") as file:
+        return list(csv.reader(file))[number - 1]
+
+
+def test_every_forecast_figure_names_the_input_rows_it_came_from(example):
+    traced = detail_rows(run(example))
+    assert all(traced.values())                                      # no figure without a source row
+    assert traced[("Base case", "2026-10", "Net salaries")] == "known_events row 2"
+    assert csv_row(example, "known_events", 2)[:3] == ["net_salaries", "2026-10", "-286500"]
+    assert traced[("Base case", "2026-12", "Net salaries")] == "history row 8"       # the model again
+    assert csv_row(example, "history", 8)[0] == "net_salaries"
+    assert traced[("downside", "2027-01", "Receipts from customers, export")] == \
+        "history row 4; known_events row 38; scenarios row 3"
+    assert csv_row(example, "history", 4)[0] == "receipts_export"
+    assert csv_row(example, "known_events", 38)[:4] == ["receipts_export", "2027-01", "45000", "on top"]
+    assert csv_row(example, "scenarios", 3)[:3] == ["downside", "receipts_export", "-8"]
+    # two scenario rows on one line, each in its own month
+    assert traced[("customer_pays_late", "2027-06", "Receipts from customers, export")] == \
+        "history row 4; scenarios row 9"
+    assert traced[("customer_pays_late", "2027-07", "Receipts from customers, export")] == \
+        "history row 4; scenarios row 10"
+    # a known line names only the schedule; the base case never names a scenarios row
+    assert traced[("Base case", "2026-10", "Rent and leases")] == "known_events row 4"
+    assert not any("scenarios" in rows for (scenario, _, _), rows in traced.items() if scenario == "Base case")
+
+
+def test_source_rows_are_the_rows_excel_shows(tmp_path):
+    from openpyxl import load_workbook
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="xlsx")
+    book = load_workbook(made["path"])
+    # The example workbook has a NOTE in row 1 and the headings in row 2, so the first amount is in row 3.
+    assert [book["known_events"].cell(3, column).value for column in (1, 2, 3)] == ["net_salaries", "2026-10", -286500]
+    traced = detail_rows(run(made["path"]))
+    assert traced[("Base case", "2026-10", "Net salaries")] == "known_events row 3"
+    assert traced[("downside", "2027-01", "Receipts from customers, export")] == \
+        "history row 4; known_events row 39; scenarios row 4"
+    # An empty row in the middle of a sheet moves the rows below it, and the reference follows.
+    book["scenarios"].insert_rows(4)
+    shifted = tmp_path / "shifted.xlsx"
+    book.save(shifted)
+    assert [book["scenarios"].cell(5, column).value for column in (1, 2, 3)] == ["downside", "receipts_export", -8]
+    assert detail_rows(run(shifted, output_dir=str(tmp_path / "out")))[
+        ("downside", "2027-01", "Receipts from customers, export")] == \
+        "history row 4; known_events row 39; scenarios row 5"
+
+
+def test_a_problem_names_the_row_excel_shows(tmp_path):
+    from openpyxl import load_workbook
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path), format="xlsx")
+    book = load_workbook(made["path"])
+    book["scenarios"].cell(4, 2).value = "no_such_line"
+    broken = tmp_path / "broken.xlsx"
+    book.save(broken)
+    assert "scenarios row 4: 'no_such_line'" in problems_for(broken)
+
+
+def test_summary_names_the_row_of_each_scenario_rule_and_left_out_amount(example):
+    from openpyxl import load_workbook
+    rows = list(load_workbook(run(example)["main_file"])["Summary"].iter_rows(values_only=True))
+    rule = next(r for r in rows if r[0] == "downside" and r[1] == "Receipts from customers, export")
+    assert rule[2] == "-8%" and rule[5] == "scenarios row 3" and rule[6] == "Weaker export demand"
+    left_out = next(r for r in rows if r[0] == "Loan drawdowns")
+    assert left_out[4] == "known_events row 41" and left_out[5].startswith("Refinancing drawdown")
+    assert csv_row(example, "known_events", 41)[:3] == ["loan_drawdowns", "2027-03", "1000000"]
+
+
+# --- 0.2.0: the forecast says which run and which input produced it -------------------------------
+def test_version_is_the_same_everywhere():
+    import re
+    manifest = re.search(r"^version: (\S+)", (ROOT / "plugin.yaml").read_text(encoding="utf-8"), re.M).group(1)
+    project = re.search(r'^version = "(\S+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M).group(1)
+    assert manifest == project == tools.VERSION == "0.2.0"
+
+
+def test_run_reports_what_identifies_it(example):
+    import re
+    from openpyxl import load_workbook
+    result = run(example)
+    identity = result["forecast_identity"]
+    assert list(identity) == ["Plugin version", "Run at", "Model", "Model settings", "History used by the model",
+                              "Input", "Input fingerprint", "Libraries"]
+    assert identity["Plugin version"] == f"Treasury Cash Forecast {tools.VERSION}"
+    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S.* \(UTC[+-]\d{4}\)", identity["Run at"])
+    assert identity["Model"] == "ets" and "heuristic start" in identity["Model settings"]
+    assert identity["History used by the model"] == "36 months, 2023-10 to 2026-09"
+    assert identity["Input"] == "example"
+    assert re.fullmatch(r"[0-9a-f]{12}", identity["Input fingerprint"])
+    assert "statsmodels" in identity["Libraries"]
+    assert call(tools.cash_forecast_validate, input_path=str(example))["input_fingerprint"] == identity["Input fingerprint"]
+    book = load_workbook(result["main_file"])
+    labels = [row[0] for row in book["Summary"].iter_rows(values_only=True)]
+    start = labels.index("Forecast identity")
+    assert start < labels.index("Closing cash by month")             # at the top, before the figures
+    summary = {row[0]: row[1] for row in book["Summary"].iter_rows(values_only=True) if row[0]}
+    for label, text in identity.items():
+        assert summary[label] == text
+    notes = {row[0]: row[1] for row in book["Notes"].iter_rows(values_only=True) if row[0]}
+    for label in ("Plugin version", "Run at", "Model settings", "Input", "Input fingerprint"):
+        assert notes[label] == identity[label]
+    assert notes["Model"] == "ets" and "statsmodels" in notes["Library versions"]
+
+
+def test_identity_names_the_model_that_ran(example):
+    identity = run(example, model="seasonal_naive")["forecast_identity"]
+    assert identity["Model"] == "seasonal_naive" and "nothing is fitted" in identity["Model settings"]
+
+
+def test_fingerprint_follows_the_content_not_the_file(example, tmp_path):
+    from openpyxl import load_workbook
+    before = loader.load_inputs(example).fingerprint
+    assert len(before) == 64 and loader.load_inputs(example).fingerprint == before
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path / "t"), format="xlsx")
+    book = load_workbook(made["path"])
+    # the same example as a workbook: same content, same fingerprint
+    assert loader.load_inputs(made["path"]).fingerprint == before
+    # saved again, and with an empty row added: the content has not changed
+    book["known_events"].insert_rows(6)
+    saved = tmp_path / "saved_again.xlsx"
+    book.save(saved)
+    assert loader.load_inputs(saved).fingerprint == before
+    # one amount changed: a different fingerprint
+    book["known_events"].cell(3, 3).value = -286501
+    changed = tmp_path / "changed.xlsx"
+    book.save(changed)
+    assert loader.load_inputs(changed).fingerprint != before
+    edit(example, "scenarios", lambda rows: rows[:2] + [rows[2][:2] + ["-9"] + rows[2][3:]] + rows[3:])
+    assert loader.load_inputs(example).fingerprint != before
+
+
+# --- 0.2.0: the second example, a hotel with seasonal cash ------------------------------------------
+HOTEL = ROOT / "examples" / "synthetic_hotel"
+
+
+@pytest.fixture
+def hotel(tmp_path):
+    folder = tmp_path / "hotel"
+    shutil.copytree(HOTEL, folder)
+    return folder
+
+
+def test_hotel_example_files_match_the_generator():
+    import runpy
+    before = {p.name: p.read_bytes() for p in HOTEL.glob("*.csv")}
+    runpy.run_path(str(ROOT / "examples" / "build_hotel_example.py"), run_name="__main__")
+    assert {p.name: p.read_bytes() for p in HOTEL.glob("*.csv")} == before
+
+
+def test_hotel_example_passes_the_check(hotel):
+    checked = call(tools.cash_forecast_validate, input_path=str(hotel))
+    assert checked["success"] and checked["ready_to_run"]
+    assert checked["data_kind"] == "synthetic" and checked["currency"] == "EUR"
+    assert checked["origin_month"] == "2026-10-01" and checked["opening_cash"] == "690000.00"
+    assert checked["history_ties_opening_to_closing"] == "yes"
+    assert checked["minimum_cash"] == "150000.00"
+    assert len(checked["lines"]) == 26 and checked["shortest_forecast_history_months"] == 36
+    assert sum(line["treatment"] == "forecast" for line in checked["lines"]) == 16
+    assert checked["scenarios"] == ["group_cancels", "more_direct_bookings", "refurbishment_overrun",
+                                    "weak_season", "weak_season_with_credit_line"]
+    assert all(model["can_run"] for model in checked["models"].values())
+
+
+def test_hotel_example_tells_the_intended_story(hotel):
+    result = run(hotel)
+    cases = result["scenarios"]
+    base, weak, bridged = cases["base"], cases["weak_season"], cases["weak_season_with_credit_line"]
+    # the base case gets through the winter above the minimum cash; the low point is at its end
+    assert base["months_below_minimum_cash"] == [] and base["months_below_zero"] == []
+    assert base["lowest_closing_cash"]["month"] in ("2027-02-01", "2027-03-01")
+    # a weak season does not: below the minimum from February, overdrawn in April
+    assert set(weak["months_below_minimum_cash"]) >= {"2027-02-01", "2027-03-01", "2027-04-01", "2027-05-01"}
+    assert "2027-04-01" in weak["months_below_zero"]
+    # the seasonal credit line carries the same weak season through, and costs its interest
+    assert bridged["months_below_minimum_cash"] == [] and bridged["months_below_zero"] == []
+    assert Decimal(bridged["final_closing_cash"]) == Decimal(weak["final_closing_cash"]) - Decimal("7800.00")
+    # fixed-amount scenarios move the year end by exactly their amount
+    assert Decimal(cases["group_cancels"]["final_closing_cash"]) == Decimal(base["final_closing_cash"]) - 45000
+    assert Decimal(cases["refurbishment_overrun"]["final_closing_cash"]) == Decimal(base["final_closing_cash"]) - 60000
+    assert Decimal(cases["more_direct_bookings"]["final_closing_cash"]) > Decimal(base["final_closing_cash"])
+    # the refund confirmed after the forecast date is left out
+    (left_out,) = result["left_out_inputs"]
+    assert left_out["line_id"] == "other_receipts" and left_out["reason"] == "not_known_at_origin"
+
+
+def test_hotel_example_ties_to_the_cent_in_every_scenario(hotel):
+    result = run(hotel)
+    assert len(result["scenarios"]) == 6
+    for scenario in result["scenarios"]:
+        balance = Decimal(result["opening_cash"])
+        for row in audit_rows(result, scenario, "cash_bridge.csv"):
+            net = sum(Decimal(row[s]) for s in ("operating", "investing", "financing"))
+            assert Decimal(row["opening_cash"]) == balance and net == Decimal(row["net_cash_movement"])
+            balance += net
+            assert Decimal(row["closing_cash"]) == balance
+        assert Decimal(result["scenarios"][scenario]["final_closing_cash"]) == balance
+
+
+def test_hotel_receipts_stay_receipts_and_payments_stay_payments(hotel):
+    """A model on a seasonal line must not turn a quiet month into money flowing the wrong way."""
+    inputs = loader.load_inputs(hotel)
+    signs = {line_id: 1 if sum(values.values()) > 0 else -1 for line_id, values in inputs.actuals.items()
+             if any(values.values())}
+    forecast_lines = {l.line_id for l in inputs.schema.lines if l.treatment == "forecast"}
+    for row in audit_rows(run(hotel), "base"):
+        if row["line_id"] in forecast_lines:
+            assert Decimal(row["point"]) * signs[row["line_id"]] > 0, row
+
+
+def test_hotel_template_can_be_asked_for(hotel, tmp_path):
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path / "t"), format="xlsx", example="hotel")
+    assert made["success"] and Path(made["path"]).name == "cash_forecast_example_hotel.xlsx"
+    assert made["contains"] == "synthetic example hotel (made-up data)"
+    assert made["examples_available"] == ["manufacturer", "hotel"]
+    assert run(made["path"])["closing_cash_by_month"] == run(hotel)["closing_cash_by_month"]
+    folder = call(tools.cash_forecast_template, output_dir=str(tmp_path / "c"), format="csv", example="hotel")
+    assert Path(folder["path"]).name == "cash_forecast_example_hotel"
+    assert (Path(folder["path"]) / "history.csv").read_bytes() == (HOTEL / "history.csv").read_bytes()
+
+
+def test_manufacturer_is_still_the_default_example_and_an_unknown_one_is_refused(tmp_path):
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path))
+    assert Path(made["path"]).name == "cash_forecast_example.xlsx"
+    assert made["contains"] == "synthetic example manufacturer (made-up data)"
+    refused = call(tools.cash_forecast_template, output_dir=str(tmp_path / "x"), example="airline")
+    assert refused["success"] is False and "manufacturer, hotel" in refused["error"]

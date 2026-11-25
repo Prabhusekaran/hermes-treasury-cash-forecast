@@ -12,8 +12,9 @@ CASH_FORECAST_TEMPLATE = {
     "name": "cash_forecast_template",
     "description": (
         "Create the input template for a 12-month corporate cash-flow forecast, either filled with a "
-        "made-up example company or empty. Use this first when the user has no template yet, or wants "
-        "to see what the forecast needs. Returns the path of the file or folder to fill in."
+        "made-up example company (a manufacturer, or a hotel with strongly seasonal cash) or empty. "
+        "Use this first when the user has no template yet, or wants to see what the forecast needs. "
+        "Returns the path of the file or folder to fill in."
     ),
     "parameters": {
         "type": "object",
@@ -22,8 +23,13 @@ CASH_FORECAST_TEMPLATE = {
             "format": {"type": "string", "enum": ["xlsx", "csv"],
                        "description": "xlsx = one Excel workbook (default); csv = a folder of CSV files."},
             "with_example": {"type": "boolean",
-                             "description": "true (default) = include the synthetic example company; "
+                             "description": "true (default) = include a synthetic example company; "
                                             "false = empty template with headings only."},
+            "example": {"type": "string", "enum": ["manufacturer", "hotel"],
+                        "description": "Which made-up example company to include. manufacturer (default) "
+                                       "= a mid-sized manufacturer; hotel = one 110-room hotel whose cash "
+                                       "is seasonal, with scenarios for a weak season and a seasonal "
+                                       "credit line. Use hotel when the user works in hospitality."},
         },
         "required": ["output_dir"],
     },
@@ -56,8 +62,10 @@ CASH_FORECAST_RUN = {
         "below zero or below the user's minimum cash, and the effect per line; closing cash by month "
         "side by side; what was left out and why (always tell the user about left-out amounts); and "
         "the output: cash_forecast.xlsx (a summary, a plain-language page on how the forecast is "
-        "built, and one cash-flow statement per scenario, actuals then forecast) and an audit folder "
-        "per scenario. "
+        "built, one cash-flow statement per scenario, actuals then forecast, and a sheet that names "
+        "the row of the user's input behind every forecast figure) and an audit folder per scenario. "
+        "Also returns forecast_identity: plugin version, time of the run, model and settings, and a "
+        "fingerprint of the input; quote it when the user asks which run or input a result belongs to. "
         "Report the returned numbers exactly; never recalculate or estimate cash figures yourself. "
         "If the tool says a library cannot be loaded, pass on its instruction to restart Hermes; do not "
         "pip install anything and do not switch model or file format unless the user asks for that."

@@ -29,6 +29,8 @@ the whole file in one pass. Nothing here calculates a forecast.
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -95,6 +97,11 @@ class Inputs:
     balances: dict = field(default_factory=dict)     # "opening_cash"/"closing_cash" -> {month: amount}
     opening_cash_source: str = "inputs"
     history_ties: bool | None = None                 # None = could not be checked
+    # Where each input sits in the user's file: the row number as Excel (or the CSV file) shows it.
+    line_rows: dict = field(default_factory=dict)        # line_id -> row in history
+    event_rows: dict = field(default_factory=dict)       # known event id -> row in known_events
+    assumption_rows: dict = field(default_factory=dict)  # older layout: assumption id -> row in scenarios
+    fingerprint: str = ""                            # SHA-256 of the tables as read (see table_fingerprint)
 
     @property
     def scenarios(self):
@@ -124,21 +131,56 @@ def _clean(value):
 
 
 def _rows_from_grid(grid):
-    """First non-empty row is the header; later rows become dicts. Blank rows are skipped."""
-    grid = [[_clean(c) for c in row] for row in grid]
-    grid = [row for row in grid if any(c != "" for c in row)]
-    while grid and isinstance(grid[0][0], str) and grid[0][0].upper().startswith("NOTE"):
-        grid = grid[1:]         # a reminder for the user, not data
-    if not grid:
-        return [], []
-    header = [_header_text(c) for c in grid[0]]
+    """First non-empty row is the header; later rows become dicts. Blank rows are skipped.
+
+    Returns (header, rows, numbers). numbers[i] is the row of rows[i] as the user sees it in
+    Excel or in the CSV file (1 = the first row), counting blank rows and a NOTE row, so that
+    messages and the result workbook can point to the exact row.
+    """
+    numbered = [(number, [_clean(c) for c in row]) for number, row in enumerate(grid, start=1)]
+    numbered = [(number, row) for number, row in numbered if any(c != "" for c in row)]
+    while numbered and isinstance(numbered[0][1][0], str) and numbered[0][1][0].upper().startswith("NOTE"):
+        numbered = numbered[1:]         # a reminder for the user, not data
+    if not numbered:
+        return [], [], []
+    header = [_header_text(c) for c in numbered[0][1]]
     while header and header[-1] == "":
         header.pop()
-    rows = []
-    for raw in grid[1:]:
+    rows, numbers = [], []
+    for number, raw in numbered[1:]:
         cells = list(raw[:len(header)]) + [""] * (len(header) - len(raw))
         rows.append(dict(zip(header, cells)))
-    return header, rows
+        numbers.append(number)
+    return header, rows, numbers
+
+
+def _fingerprint_cell(value):
+    """One spelling per value, so 5, 5.0 and the text '5' count as the same content."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return repr(float(value))
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    text = str(value)
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return repr(number) if number == number and abs(number) != float("inf") else text
+
+
+def table_fingerprint(tables):
+    """SHA-256 of the headings and cells of the tables as read.
+
+    It identifies the content, not the file: saving the workbook again without changing a cell
+    gives the same fingerprint, changing any heading or cell gives a different one. Blank rows,
+    a NOTE row, cell formats and the instructions sheet do not count.
+    """
+    content = {name: [list(header)] + [[_fingerprint_cell(row[column]) for column in header] for row in rows]
+               for name, (header, rows, _) in sorted(tables.items())}
+    text = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _header_text(cell):
@@ -179,7 +221,7 @@ def _read_workbook(path):
         for sheet in book.worksheets:
             title = sheet.title.strip().lower()
             by_name.setdefault(ALIASES.get(title, title), sheet)
-        return {name: _rows_from_grid(list(by_name[name].iter_rows(values_only=True)))
+        return {name: _rows_from_grid(list(by_name[name].iter_rows(min_row=1, values_only=True)))
                 for name in READABLE if name in by_name}
     finally:
         book.close()
@@ -276,7 +318,7 @@ def load_inputs(input_path):
 
     # inputs
     settings = {}
-    header, rows = tables["inputs"]
+    header, rows, _ = tables["inputs"]
     if [h.lower() for h in header[:2]] != ["key", "value"]:
         problems.append("inputs: the first two columns must be 'key' and 'value'.")
     else:
@@ -309,15 +351,15 @@ def load_inputs(input_path):
     # lines: defined in the history sheet (label, section, treatment next to each line),
     # or in a separate "lines" table in older files
     lines, seen = [], set()
-    history_header, history_rows = tables["history"]
+    history_header, history_rows, history_numbers = tables["history"]
     if "lines" in tables:
         table = "lines"
-        header, rows = tables["lines"]
-        definitions = list(enumerate(rows, start=2))
+        header, rows, numbers = tables["lines"]
+        definitions = list(zip(numbers, rows))
     else:
         table = "history"
         header = history_header
-        definitions = [(number, row) for number, row in enumerate(history_rows, start=2)
+        definitions = [(number, row) for number, row in zip(history_numbers, history_rows)
                        if str(row.get("line_id", "")).strip()
                        and str(row.get("line_id", "")).strip().lower() not in BALANCE_ROWS]
     missing = [c for c in ("line_id", "label", "section", "treatment") if c not in header]
@@ -357,6 +399,7 @@ def load_inputs(input_path):
 
     # history (a direct cash-flow statement: opening cash, one row per line, closing cash)
     history, actuals, balances = [], {}, {"opening_cash": {}, "closing_cash": {}}
+    line_rows = {}
     header, rows = history_header, history_rows
     if not header or header[0] != "line_id":
         problems.append("history: the first column must be 'line_id'.")
@@ -372,7 +415,7 @@ def load_inputs(input_path):
         if len({m for _, m in months}) != len(months):
             problems.append("history: the same month appears in two columns.")
         filled = set()
-        for number, row in enumerate(rows, start=2):
+        for number, row in zip(history_numbers, rows):
             line_id = str(row["line_id"]).strip()
             if not line_id:
                 continue
@@ -395,6 +438,7 @@ def load_inputs(input_path):
                 problems.append(f"history row {number}: '{line_id}' appears twice.")
                 continue
             filled.add(line_id)
+            line_rows[line_id] = number
             is_forecast = by_id[line_id].treatment == "forecast"
             values = {}
             for column, month in months:
@@ -436,15 +480,15 @@ def load_inputs(input_path):
                 problems.append(f"history: forecast line '{line.line_id}' has no row.")
 
     # known events
-    events, replace_ids = [], set()
+    events, replace_ids, event_rows = [], set(), {}
     if "known_events" in tables and tables["known_events"][0]:
-        header, rows = tables["known_events"]
+        header, rows, numbers = tables["known_events"]
         missing = [c for c in ("line_id", "month", "amount") if c not in header]
         if missing:
             problems.append(f"known_events: missing column(s): {', '.join(missing)}.")
         else:
             ids = set()
-            for number, row in enumerate(rows, start=2):
+            for number, row in zip(numbers, rows):
                 where = f"known_events row {number}"
                 line_id = str(row["line_id"]).strip()
                 if line_id not in by_id:
@@ -474,15 +518,16 @@ def load_inputs(input_path):
                     problems.append(f"{where}: event_id '{event_id}' is used twice.")
                     continue
                 ids.add(event_id)
+                event_rows[event_id] = number
                 events.append(KnownEvent(event_id, line_id, effective, known_from, amount,
                                          str(row.get("note", "")).strip()))
                 if effect == "replace" and by_id[line_id].treatment == "forecast":
                     replace_ids.add(event_id)
 
     # scenarios: a percentage or a fixed amount per line, over a range of months
-    assumptions, rules = [], []
+    assumptions, rules, assumption_rows = [], [], {}
     if "scenarios" in tables and tables["scenarios"][0]:
-        header, rows = tables["scenarios"]
+        header, rows, numbers = tables["scenarios"]
         legacy = "month" in header and "percent" not in header     # one amount per month
         needed = ("scenario", "line_id", "month", "amount") if legacy else ("scenario", "line_id")
         missing = [c for c in needed if c not in header]
@@ -492,7 +537,7 @@ def load_inputs(input_path):
             problems.append(f"scenarios: missing column(s): {', '.join(missing)}.")
         else:
             ids = set()
-            for number, row in enumerate(rows, start=2):
+            for number, row in zip(numbers, rows):
                 where = f"scenarios row {number}"
                 line_id = str(row["line_id"]).strip()
                 scenario = str(row["scenario"]).strip()
@@ -525,6 +570,7 @@ def load_inputs(input_path):
                         problems.append(f"{where}: assumption_id '{assumption_id}' is used twice.")
                         continue
                     ids.add(assumption_id)
+                    assumption_rows[assumption_id] = number
                     assumptions.append(ManagementAssumption(
                         assumption_id, line_id, effective, available, amount, scenario,
                         note or "No note given"))
@@ -619,4 +665,5 @@ def load_inputs(input_path):
     return Inputs(CashFlowSchema(currency, tuple(lines)), tuple(history), origin,
                   OpeningCash(origin, opening), tuple(events), tuple(assumptions),
                   data_kind, source, warnings, tuple(rules), frozenset(replace_ids), chosen_model,
-                  minimum_cash, actuals, balances, opening_source, ties)
+                  minimum_cash, actuals, balances, opening_source, ties,
+                  line_rows, event_rows, assumption_rows, table_fingerprint(tables))

@@ -1,7 +1,9 @@
-"""Write the input template: the worked synthetic example, or an empty one.
+"""Write the input template: a worked synthetic example, or an empty one.
 
-The example data lives as plain CSV in examples/synthetic_company so it can be
-read and reviewed. An Excel workbook is built from it on request.
+Two made-up example companies ship with the plugin, a manufacturer and a hotel.
+Their data lives as plain CSV in examples/synthetic_company and
+examples/synthetic_hotel so it can be read and reviewed. An Excel workbook is
+built from it on request.
 """
 from __future__ import annotations
 
@@ -11,7 +13,15 @@ from pathlib import Path
 
 from .loader import TABLES, TemplateError
 
-EXAMPLE_DIR = Path(__file__).resolve().parent / "examples" / "synthetic_company"
+EXAMPLES_ROOT = Path(__file__).resolve().parent / "examples"
+EXAMPLE_DIR = EXAMPLES_ROOT / "synthetic_company"
+# name -> (folder, file name of the filled template, what it is)
+EXAMPLES = {
+    "manufacturer": (EXAMPLE_DIR, "cash_forecast_example", "synthetic example manufacturer (made-up data)"),
+    "hotel": (EXAMPLES_ROOT / "synthetic_hotel", "cash_forecast_example_hotel",
+              "synthetic example hotel (made-up data)"),
+}
+DEFAULT_EXAMPLE = "manufacturer"
 
 CLEAR_NOTE = ("NOTE: these rows belong to the made-up example company. Delete ALL of them, and this note, "
               "before you enter your own.")
@@ -82,8 +92,8 @@ INSTRUCTIONS = [
 ]
 
 
-def _example_rows(name, with_example):
-    with (EXAMPLE_DIR / f"{name}.csv").open(newline="", encoding="utf-8") as file:
+def _example_rows(name, with_example, folder=EXAMPLE_DIR):
+    with (folder / f"{name}.csv").open(newline="", encoding="utf-8") as file:
         rows = list(csv.reader(file))
     if with_example:
         return rows
@@ -103,13 +113,16 @@ def _number(text):
         return text
 
 
-def write_template(output_dir, file_format="xlsx", with_example=True):
+def write_template(output_dir, file_format="xlsx", with_example=True, example=DEFAULT_EXAMPLE):
     """Create the template and return the path the user should edit."""
     if file_format not in ("xlsx", "csv"):
         raise TemplateError(["format must be 'xlsx' or 'csv'."])
+    if example not in EXAMPLES:
+        raise TemplateError([f"example must be one of: {', '.join(EXAMPLES)}."])
+    example_dir, example_stem, _ = EXAMPLES[example]
     target = Path(str(output_dir)).expanduser()
     target.mkdir(parents=True, exist_ok=True)
-    stem = "cash_forecast_example" if with_example else "cash_forecast_template"
+    stem = example_stem if with_example else "cash_forecast_template"
     if file_format == "csv":
         folder = target / stem
         if folder.exists() and any(folder.iterdir()):
@@ -117,7 +130,7 @@ def write_template(output_dir, file_format="xlsx", with_example=True):
         folder.mkdir(exist_ok=True)
         if with_example:
             for name in TABLES:
-                shutil.copyfile(EXAMPLE_DIR / f"{name}.csv", folder / f"{name}.csv")
+                shutil.copyfile(example_dir / f"{name}.csv", folder / f"{name}.csv")
         else:
             for name in TABLES:
                 with (folder / f"{name}.csv").open("w", newline="", encoding="utf-8") as file:
@@ -157,7 +170,7 @@ def write_template(output_dir, file_format="xlsx", with_example=True):
 
     for name in TABLES:
         sheet = book.create_sheet(name)
-        rows = _example_rows(name, with_example)
+        rows = _example_rows(name, with_example, example_dir)
         note = with_example and name in ("known_events", "scenarios")
         if note:
             sheet.append([CLEAR_NOTE])

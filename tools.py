@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import warnings
+from datetime import datetime
 from pathlib import Path
 
 from .engine.cash_flow_orchestration import write_outputs
@@ -18,7 +20,7 @@ from .engine.evaluate import MODEL_REGISTRY
 from .loader import TemplateError, load_inputs
 from .scenarios import BASE, run_all
 from .statement_xlsx import write_workbook
-from .template import write_template
+from .template import DEFAULT_EXAMPLE, EXAMPLES, write_template
 
 DEFAULT_MODEL = "ets"
 # TiRex-2 is in the engine but not offered: it needs a compiler toolchain most users lack.
@@ -33,6 +35,29 @@ MODELS = {
                  "package and the model already downloaded on this machine.",
 }
 SIMPLE_MODELS = ("ets", "sarima", "baseline", "seasonal_drift", "seasonal_naive", "previous_month")
+# What is fixed in the code for each model, in words, for the "Forecast identity" block.
+MODEL_SETTINGS = {
+    "ets": "additive trend, additive 12-month seasonality, heuristic start, smoothing weights fitted to the history",
+    "sarima": "SARIMA(1,1,0)x(0,1,1,12), no constant, fixed specification, fitted to the history",
+    "baseline": "typical level per calendar month plus linear trend; nothing is fitted numerically",
+    "seasonal_drift": "same month last year plus the average yearly change; nothing is fitted numerically",
+    "seasonal_naive": "same month last year; nothing is fitted numerically",
+    "previous_month": "last actual month repeated; nothing is fitted numerically",
+    "chronos_2": "pre-trained Chronos-2 weights read from this machine; nothing is fitted to your history",
+}
+
+
+def _plugin_version():
+    """The version in plugin.yaml, the file Hermes itself reads."""
+    try:
+        text = (Path(__file__).resolve().parent / "plugin.yaml").read_text(encoding="utf-8")
+        found = re.search(r"^version:\s*['\"]?([^'\"\s]+)", text, re.MULTILINE)
+        return found.group(1) if found else "unknown"
+    except OSError:
+        return "unknown"
+
+
+VERSION = _plugin_version()
 
 
 LIBRARIES = {"statsmodels": "the ETS and SARIMA models", "openpyxl": "reading and writing Excel files"}
@@ -73,6 +98,31 @@ def _missing_libraries():
 def _library_problem(missing):
     needs = "; ".join(f"'{name}' ({LIBRARIES[name]})" for name in missing)
     return f"Hermes cannot load {needs} in this session. {RESTART_HINT}"
+
+
+def _identity(inputs, model, run, versions, now=None):
+    """What names this run: enough to tell two workbooks apart and to repeat one."""
+    now = now or datetime.now().astimezone()
+    zone = now.tzname() or ""
+    trained = [a for a in run.model_audit]
+    if trained:
+        fewest = min(trained, key=lambda a: a["train_months"])
+        history = (f"{fewest['train_months']} months, {fewest['first_train_month']:%Y-%m} to "
+                   f"{fewest['last_train_month']:%Y-%m}")
+        if len({a["train_months"] for a in trained}) > 1:
+            history += " (shortest line; others have more)"
+    else:
+        history = "no line is projected by a model"
+    return {
+        "Plugin version": f"Treasury Cash Forecast {VERSION}",
+        "Run at": f"{now:%Y-%m-%d %H:%M:%S} {zone} (UTC{now:%z})".replace("  ", " "),
+        "Model": model,
+        "Model settings": MODEL_SETTINGS.get(model, "not recorded"),
+        "History used by the model": history,
+        "Input": Path(inputs.source).name,
+        "Input fingerprint": inputs.fingerprint[:12],
+        "Libraries": ", ".join(f"{name} {version}" for name, version in versions.items()),
+    }
 
 
 def _reply(payload):
@@ -128,6 +178,7 @@ def _overview(inputs):
         lines.append(entry)
     return {
         "source": inputs.source,
+        "input_fingerprint": inputs.fingerprint[:12],
         "currency": inputs.schema.currency,
         "data_kind": inputs.data_kind,
         "origin_month": inputs.origin_month.isoformat(),
@@ -247,11 +298,15 @@ def cash_forecast_template(args: dict, **kwargs) -> str:
         file_format = (args.get("format") or "xlsx").lower()
         if file_format == "xlsx" and "openpyxl" in _missing_libraries():
             return _fail(_library_problem(["openpyxl"]))
-        path = write_template(output_dir, file_format, bool(args.get("with_example", True)))
+        with_example = bool(args.get("with_example", True))
+        example = str(args.get("example") or DEFAULT_EXAMPLE).strip().lower()
+        if example not in EXAMPLES:
+            return _fail(f"Unknown example '{example}'. Choose one of: {', '.join(EXAMPLES)}.")
+        path = write_template(output_dir, file_format, with_example, example)
         return _reply({
             "success": True, "path": str(path),
-            "contains": "synthetic example company (made-up data)" if args.get("with_example", True)
-                        else "empty template",
+            "contains": EXAMPLES[example][2] if with_example else "empty template",
+            "examples_available": list(EXAMPLES),
             "next_step": "Fill the four tables, then call cash_forecast_validate with this path.",
             "tables": ["inputs", "history", "known_events", "scenarios"],
             "layout": "history is a direct cash-flow statement and defines the lines: opening_cash row, "
@@ -319,16 +374,19 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
         audit_files = []
         for name, run in runs.items():
             audit_files += [str(f) for f in write_outputs(run, output_dir / "audit" / _folder_name(name))]
+        base = runs[BASE]
+        versions = _library_versions()
+        identity = _identity(inputs, model, base, versions)
         files = []
         try:
             files.append(str(write_workbook(output_dir / "cash_forecast.xlsx", runs, inputs,
-                                            _library_versions())))
+                                            versions, identity)))
         except ImportError:
             inputs.warnings.append("The Excel statement was not written because 'openpyxl' is not installed.")
-        base = runs[BASE]
         months = [m.month.isoformat() for m in base.statement.months]
         return _reply({
             "success": True,
+            "forecast_identity": identity,
             "model": model, "data_kind": inputs.data_kind, "currency": inputs.schema.currency,
             "origin_month": inputs.origin_month.isoformat(), "horizon_months": HORIZON,
             "opening_cash": str(base.statement.opening_cash),
@@ -346,7 +404,7 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
             "base_cash_bridge": _bridge(base),
             "model_runs": list(base.model_audit),
             "model_notes": model_notes,
-            "library_versions": _library_versions(),
+            "library_versions": versions,
             "model_figure_replaced_by_known_amount": base.inputs["model_forecast_replaced_by_known_amount"],
             "model_continued_from_known_amounts": base.inputs["model_continued_from_known_amounts"],
             "left_out_inputs": list({d.input_id: {"kind": d.kind, "id": d.input_id, "line_id": d.line_id,
@@ -359,6 +417,9 @@ def cash_forecast_run(args: dict, **kwargs) -> str:
                        "figures that differ by small amounts. The simple models give identical figures everywhere.",
                        "Uncertainty ranges exist per line only (Chronos); there is no range for closing cash.",
                        "The forecast is only as good as the history and schedules supplied."],
+            "how_to_trace_a_figure": "In the workbook, the sheet 'Where numbers come from' has a 'Source row' "
+                                     "column naming the rows of the user's input behind every forecast "
+                                     "figure. Point the user there; do not reconstruct a figure yourself.",
             "main_file": files[0] if files else None,
             "audit_files": audit_files,
         })

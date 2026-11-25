@@ -1,0 +1,22 @@
+scenario,line_id,percent,amount,from_month,to_month,note
+weak_season,rooms_direct,-8,,,,Fewer direct bookings all year
+weak_season,rooms_channels,-12,,,,Fewer bookings through online channels
+weak_season,channel_commissions,-12,,,,Commissions fall with channel bookings
+weak_season,food_beverage,-6,,,,Fewer guests in the restaurant and bar
+weak_season,energy_utilities,10,,2026-12,,Energy prices rise from December
+weak_season,management_reserve,,-7000,,,Contingency for unplanned repairs
+weak_season_with_credit_line,rooms_direct,-8,,,,Fewer direct bookings all year
+weak_season_with_credit_line,rooms_channels,-12,,,,Fewer bookings through online channels
+weak_season_with_credit_line,channel_commissions,-12,,,,Commissions fall with channel bookings
+weak_season_with_credit_line,food_beverage,-6,,,,Fewer guests in the restaurant and bar
+weak_season_with_credit_line,energy_utilities,10,,2026-12,,Energy prices rise from December
+weak_season_with_credit_line,management_reserve,,-7000,,,Contingency for unplanned repairs
+weak_season_with_credit_line,credit_line,,250000,2027-01,2027-01,Seasonal credit line drawn in January
+weak_season_with_credit_line,credit_line,,-250000,2027-07,2027-07,Seasonal credit line repaid in July
+weak_season_with_credit_line,interest_paid,,-1300,2027-02,2027-07,Interest on the drawn credit line
+more_direct_bookings,rooms_direct,10,,2027-03,,Guests book direct after the new website
+more_direct_bookings,rooms_channels,-8,,2027-03,,The same guests no longer come through channels
+more_direct_bookings,channel_commissions,-8,,2027-03,,Lower commissions on the bookings moved
+more_direct_bookings,marketing_software,12,,2027-01,,Website and campaign costs from January
+group_cancels,meetings_events,,-45000,2027-05,2027-05,Largest conference group cancels its May event
+refurbishment_overrun,refurbishment,,-60000,2027-03,2027-03,Refurbishment costs more and finishes a month late

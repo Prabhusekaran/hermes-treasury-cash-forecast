@@ -37,6 +37,14 @@ def _month_text(month):
     return f"{month.year:04d}-{month.month:02d}"
 
 
+def rule_assumption_id(rule, month):
+    """The id the engine records when a scenarios row is applied to a month.
+
+    The result workbook uses the same id to point back to the row in the scenarios table.
+    """
+    return f"{rule.scenario}_{rule.line_id}_{_month_text(month)}_row{rule.row}"
+
+
 def _replaced_months(inputs):
     """(line_id, month index 0..11) pairs where a known amount replaces the model figure."""
     targets = {add_months(inputs.origin_month, i + 1): i for i in range(HORIZON)}
@@ -105,7 +113,7 @@ def _scenario_assumptions(inputs, scenario, base_statement):
                 amount = Decimal(str(rule.amount)).quantize(CENT, rounding=ROUND_HALF_EVEN)
                 how = "fixed amount"
             generated.append(ManagementAssumption(
-                f"{scenario}_{rule.line_id}_{_month_text(month.month)}_row{rule.row}",
+                rule_assumption_id(rule, month.month),
                 rule.line_id, month.month, inputs.origin_month, amount, scenario,
                 f"{rule.note} ({how})" if rule.note else how))
     return tuple(generated)

@@ -1,0 +1,42 @@
+line_id,month,amount,effect,known_from,note
+net_salaries,2026-11,-110500,replace,,Payroll run from the approved winter rota
+payroll_taxes,2026-11,-67200,replace,,Payroll taxes on the approved winter rota
+property_lease,2026-11,-92000,,,"Lease of the hotel building, indexed"
+net_salaries,2026-12,-111000,replace,,Payroll run from the approved winter rota
+payroll_taxes,2026-12,-67500,replace,,Payroll taxes on the approved winter rota
+property_lease,2026-12,-92000,,,"Lease of the hotel building, indexed"
+corporate_tax,2026-12,-24000,,,Assessed quarterly instalment
+interest_received,2026-12,1000,,,Interest on deposits
+property_lease,2027-01,-92000,,,"Lease of the hotel building, indexed"
+insurance,2027-01,-59000,,,"Annual premium, renewal confirmed"
+loan_repayments,2027-01,-35000,,,"Property loan, scheduled repayment"
+interest_paid,2027-01,-9500,,,Property loan interest
+property_lease,2027-02,-92000,,,"Lease of the hotel building, indexed"
+property_lease,2027-03,-92000,,,"Lease of the hotel building, indexed"
+corporate_tax,2027-03,-24000,,,Assessed quarterly instalment
+interest_received,2027-03,1000,,,Interest on deposits
+property_lease,2027-04,-92000,,,"Lease of the hotel building, indexed"
+loan_repayments,2027-04,-35000,,,"Property loan, scheduled repayment"
+interest_paid,2027-04,-9500,,,Property loan interest
+property_lease,2027-05,-92000,,,"Lease of the hotel building, indexed"
+property_lease,2027-06,-92000,,,"Lease of the hotel building, indexed"
+corporate_tax,2027-06,-24000,,,Assessed quarterly instalment
+interest_received,2027-06,1000,,,Interest on deposits
+property_lease,2027-07,-92000,,,"Lease of the hotel building, indexed"
+loan_repayments,2027-07,-35000,,,"Property loan, scheduled repayment"
+interest_paid,2027-07,-9500,,,Property loan interest
+property_lease,2027-08,-92000,,,"Lease of the hotel building, indexed"
+property_lease,2027-09,-92000,,,"Lease of the hotel building, indexed"
+corporate_tax,2027-09,-24000,,,Assessed quarterly instalment
+interest_received,2027-09,1000,,,Interest on deposits
+property_lease,2027-10,-92000,,,"Lease of the hotel building, indexed"
+loan_repayments,2027-10,-35000,,,"Property loan, scheduled repayment"
+interest_paid,2027-10,-9500,,,Property loan interest
+refurbishment,2027-01,-180000,,,"Refurbishment of 24 rooms, first payment, contract signed"
+refurbishment,2027-02,-120000,,,"Refurbishment of 24 rooms, final payment"
+owner_distributions,2027-10,-200000,,,Distribution planned after the season
+meetings_events,2026-12,58000,replace,,"Christmas and year-end events: contracts signed, deposits invoiced"
+rooms_direct,2027-01,14000,on top,,"New airline crew contract, not in the historical run-rate"
+rooms_direct,2027-02,14000,on top,,"New airline crew contract, not in the historical run-rate"
+rooms_direct,2027-03,14000,on top,,"New airline crew contract, not in the historical run-rate"
+other_receipts,2027-02,38000,on top,2026-11,"Energy cost refund; only confirmed in November 2026, so not known at the forecast date"

@@ -8,6 +8,7 @@ drift from the reconciled result.
 from __future__ import annotations
 
 from .engine.cash_flow_schema import SECTIONS
+from .scenarios import rule_assumption_id
 
 ACTUAL_MONTHS_SHOWN = 12
 BASE = "base"
@@ -87,6 +88,31 @@ def describe_treatments(run, replaced, continued=()):
     return result
 
 
+def _rows_text(table, numbers):
+    """('known_events', [9, 4]) -> 'known_events rows 4, 9'."""
+    numbers = sorted(set(numbers))
+    if not numbers:
+        return ""
+    return f"{table} row{'s' if len(numbers) > 1 else ''} {', '.join(str(n) for n in numbers)}"
+
+
+def source_rows(line, inputs, rule_rows, uses_model):
+    """Where one forecast figure comes from in the user's input: 'history row 7; scenarios row 3'.
+
+    Built from the ids the engine recorded on the figure, so it names the rows that were
+    actually applied, not the rows that might have been.
+    """
+    parts = []
+    if uses_model and line.line_id in inputs.line_rows:
+        parts.append(_rows_text("history", [inputs.line_rows[line.line_id]]))
+    parts.append(_rows_text("known_events", [inputs.event_rows[i] for i in line.event_ids
+                                             if i in inputs.event_rows]))
+    parts.append(_rows_text("scenarios", [rule_rows.get(i) or inputs.assumption_rows[i]
+                                          for i in line.assumption_ids
+                                          if i in rule_rows or i in inputs.assumption_rows]))
+    return "; ".join(part for part in parts if part)
+
+
 def _sheet_names(names):
     used, result = set(RESERVED), {}
     for name in names:
@@ -114,7 +140,12 @@ def left_out_items(runs, inputs):
             reason = REASONS.get(decision.reason, decision.reason)
             if known_from and decision.reason != "outside_horizon":
                 reason += f" (known from {_label(known_from)})"
+            row = inputs.event_rows.get(decision.input_id)
+            table = "known_events"
+            if row is None:
+                row, table = inputs.assumption_rows.get(decision.input_id), "scenarios"
             items[decision.input_id] = {
+                "row": _rows_text(table, [row]) if row else "",
                 "line": labels.get(decision.line_id, decision.line_id),
                 "month": _label(source.effective_month) if source else "",
                 "amount": float(source.amount) if source else None,
@@ -122,7 +153,8 @@ def left_out_items(runs, inputs):
     return list(items.values())
 
 
-def write_workbook(path, runs, inputs, library_versions=None):
+def write_workbook(path, runs, inputs, library_versions=None, identity=None):
+    """identity: ordered {label: text} naming this run (version, time, model, input). Optional."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -162,6 +194,8 @@ def write_workbook(path, runs, inputs, library_versions=None):
     minimum = inputs.minimum_cash
     period = (f"Forecast for {_label(forecast_months[0])} to {_label(forecast_months[-1])}; "
               f"last actual month {_label(inputs.origin_month)}.")
+    rule_rows = {rule_assumption_id(rule, month): rule.row for rule in inputs.rules for month in forecast_months}
+    identity = dict(identity or {})
 
     book = Workbook()
 
@@ -189,6 +223,16 @@ def write_workbook(path, runs, inputs, library_versions=None):
     summary["A2"] = (f"{period} Model: {models}. Data: {base.data_kind}. "
                      f"Opening cash {float(base.statement.opening_cash):,.2f}.")
     row = 4
+    if identity:
+        summary.cell(row, 1, "Forecast identity").font = bold
+        for label, text in identity.items():
+            row += 1
+            summary.cell(row, 1, label)
+            summary.cell(row, 2, text)
+        row += 1
+        summary.cell(row, 1, "Quote these lines when you share or question a figure: they say exactly which "
+                             "run and which input produced this workbook.").font = italic
+        row += 2
     header(summary, row, ["Closing cash by month"] + [_title(name) for name in runs])
     for index, month in enumerate(forecast_months):
         row += 1
@@ -238,14 +282,19 @@ def write_workbook(path, runs, inputs, library_versions=None):
     summary.cell(row, 1, "Left out of the forecast").font = bold
     row += 1
     if left_out:
-        header(summary, row, ["Line", "Month", "Amount", "Why it is left out", "Your note"])
+        header(summary, row, ["Line", "Month", "Amount", "Why it is left out", "Source row", "Your note"])
+        for column in (5, 6):
+            summary.cell(row, column).alignment = Alignment(horizontal="left")
         for item in left_out:
             row += 1
             summary.cell(row, 1, item["line"])
             summary.cell(row, 2, item["month"]).alignment = right
             number_cell(summary, row, 3, item["amount"], font=alert)
-            summary.cell(row, 4, item["reason"])
-            summary.cell(row, 5, item["note"])
+            summary.cell(row, 4, item["reason"]).alignment = wrap
+            if len(item["reason"]) > 34:                 # the reason runs over two lines
+                summary.row_dimensions[row].height = 30
+            summary.cell(row, 5, item["row"])
+            summary.cell(row, 6, item["note"])           # last column: a long note runs on to the right
         row += 1
         summary.cell(row, 1, "These amounts are in NO scenario above unless a scenario adds them. A known amount "
                              "counts only if you knew it by the last actual month.").font = italic
@@ -257,7 +306,10 @@ def write_workbook(path, runs, inputs, library_versions=None):
     if scenario_names:
         summary.cell(row, 1, "What each scenario changes").font = bold
         row += 1
-        header(summary, row, ["Scenario", "Line", "Change", "Months", "Effect over 12 months", "Your note"])
+        header(summary, row, ["Scenario", "Line", "Change", "Months", "Effect over 12 months", "Source row",
+                              "Your note"])
+        for column in (6, 7):
+            summary.cell(row, column).alignment = Alignment(horizontal="left")
         for name in scenario_names:
             effect = {}
             for month in runs[name].statement.months:
@@ -283,12 +335,17 @@ def write_workbook(path, runs, inputs, library_versions=None):
                     summary.cell(row, column, value)
                 if len([r for r in rules if r.line_id == rule.line_id]) == 1:
                     number_cell(summary, row, 5, effect.get(rule.line_id, 0))
-                summary.cell(row, 6, rule.note)
+                summary.cell(row, 6, _rows_text("scenarios", [rule.row]))
+                summary.cell(row, 7, rule.note)          # last column: a long note runs on to the right
             for line_id in sorted({a.line_id for a in inputs.assumptions if a.scenario_id == name}):
                 row += 1
                 for column, value in enumerate((name, definitions[line_id].label, "amounts per month"), start=1):
                     summary.cell(row, column, value)
                 number_cell(summary, row, 5, effect.get(line_id, 0))
+                summary.cell(row, 6, _rows_text("scenarios", [
+                    inputs.assumption_rows[a.assumption_id] for a in inputs.assumptions
+                    if a.scenario_id == name and a.line_id == line_id
+                    and a.assumption_id in inputs.assumption_rows]))
             row += 1
             summary.cell(row, 1, name).font = bold
             summary.cell(row, 2, "Total effect on final closing cash").font = bold
@@ -297,12 +354,17 @@ def write_workbook(path, runs, inputs, library_versions=None):
         row += 1
         summary.cell(row, 1, "Percentages are taken from each line's base-case figure for that month. "
                              "The base case contains no scenario.").font = italic
-    summary.column_dimensions["A"].width = 46
-    for column, width in zip("BCDEFGH", (40, 20, 34, 24, 46, 20, 20)):
-        summary.column_dimensions[column].width = width
-    if len(runs) > 4:
-        for column in range(6, 2 + len(runs)):
-            summary.column_dimensions[get_column_letter(column)].width = 20
+    # Column widths. The three tables on this sheet share the columns, so each column takes the
+    # widest thing it has to show: a scenario name in the heading, a line label, a source row.
+    widths = {"A": 46, "B": 40, "C": 20, "D": 34, "E": 24, "F": 24, "G": 20, "H": 20}
+    for column, name in enumerate(runs, start=2):
+        letter = get_column_letter(column)
+        widths[letter] = max(widths.get(letter, 20), len(_title(name)) + 5)
+    if scenario_names:
+        labels = [definitions[rule.line_id].label for rule in inputs.rules if rule.scenario in scenario_names]
+        widths["B"] = max(widths["B"], min(max(map(len, labels), default=0) + 2, 60))
+    for letter, width in widths.items():
+        summary.column_dimensions[letter].width = width
 
     # --- How this is built ----------------------------------------------------------
     built = book.create_sheet("How this is built")
@@ -352,6 +414,12 @@ def write_workbook(path, runs, inputs, library_versions=None):
          "There is no range around closing cash, only one figure per month. A forecast is not a promise: it "
          "continues the past and adds what you know. Compare models (ask for a model comparison) and review "
          "the scenarios before relying on it."),
+        ("10. Tracing a figure back",
+         "The sheet 'Where numbers come from' lists every forecast figure with its parts (model figure, known "
+         "amounts, scenario change) and, in the column 'Source row', the rows of your input that produced it, "
+         "for example 'history row 7; scenarios row 3'. The numbers are the row numbers you see in Excel on "
+         "that sheet of your template (or the line of the CSV file). The model figure itself cannot be "
+         "recalculated with a spreadsheet formula: it is fitted in code from the history row named there."),
         ("Colours on the scenario sheets",
          "No shading = projected by the model. Green = your known amount. Orange = model plus your amount on "
          "top. Purple = changed by the scenario. Grey = your actuals."),
@@ -469,7 +537,7 @@ def write_workbook(path, runs, inputs, library_versions=None):
     # --- where each forecast figure comes from ---------------------------------------
     detail = book.create_sheet("Where numbers come from")
     detail.append(["Scenario", "Month", "Line", "Source", "Model figure used", "Known amounts",
-                   "Scenario change", "Total", "Model", "Model figure not used", "Note"])
+                   "Scenario change", "Total", "Model", "Model figure not used", "Note", "Source row"])
     for cell in detail[1]:
         cell.font = bold
     for name, run in runs.items():
@@ -478,8 +546,9 @@ def write_workbook(path, runs, inputs, library_versions=None):
                 if not (line.base_point or line.known_overlay or line.assumption_overlay):
                     continue
                 index = forecast_months.index(month.month)
+                kind = treatments[line.line_id][1][index]
                 source = {"known": "known amount", "on_top": "model + known amount on top",
-                          "model": "model"}[treatments[line.line_id][1][index]]
+                          "model": "model"}[kind]
                 unused, note = None, ""
                 if (line.line_id, _label(month.month)) in replaced:
                     raw = raw_forecasts.get(line.line_id)
@@ -491,8 +560,9 @@ def write_workbook(path, runs, inputs, library_versions=None):
                 detail.append([_title(name), _label(month.month), definitions[line.line_id].label, source,
                                float(line.base_point), float(line.known_overlay),
                                float(line.assumption_overlay), float(line.point),
-                               line.model_name or "", unused, note])
-    for column, width in zip("ABCDEFGHIJK", (16, 10, 46, 30, 18, 16, 16, 16, 12, 22, 70)):
+                               line.model_name or "", unused, note,
+                               source_rows(line, inputs, rule_rows, uses_model=kind != "known")])
+    for column, width in zip("ABCDEFGHIJKL", (16, 10, 46, 30, 18, 16, 16, 16, 12, 22, 70, 60)):
         detail.column_dimensions[column].width = width
     for cells in detail.iter_rows(min_row=2, min_col=5, max_col=10):
         for cell in cells:
@@ -503,7 +573,15 @@ def write_workbook(path, runs, inputs, library_versions=None):
 
     # --- notes ------------------------------------------------------------------------
     notes = book.create_sheet("Notes")
-    rows = [["Model", models], ["Data kind (declared by the user)", base.data_kind],
+    rows = []
+    if identity:
+        rows += [["Forecast identity"]]
+        rows += [[label, text] for label, text in identity.items() if label not in ("Model", "Libraries")]
+        rows += [["What the fingerprint is",
+                  "The first 12 characters of a SHA-256 checksum of the headings and cells of your input tables. "
+                  "The same content gives the same fingerprint; any changed cell gives a different one. "
+                  "Saving the file again without changes does not alter it."], [""]]
+    rows += [["Model", models], ["Data kind (declared by the user)", base.data_kind],
             ["Last month of actuals", _label(inputs.origin_month)],
             ["Forecast months", f"{_label(forecast_months[0])} to {_label(forecast_months[-1])}"],
             ["Opening cash taken from", inputs.opening_cash_source],

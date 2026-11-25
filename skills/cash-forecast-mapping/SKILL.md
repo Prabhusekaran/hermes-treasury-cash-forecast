@@ -12,7 +12,8 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
 ## Steps
 
 1. Call `cash_forecast_template` with `with_example: true` so you and the user
-   can see the target format. Read the user's file.
+   can see the target format (`example: hotel` if the user works in
+   hospitality, otherwise the default manufacturer). Read the user's file.
 2. Propose a mapping table and show it to the user before writing anything:
 
    | Their row | line_id | section | treatment | Why |
@@ -36,6 +37,11 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
    Name the lowest-cash month and any month below zero. Say which lines came
    from a model and which from the schedule. Point the user to
    `cash_forecast.xlsx`: a summary sheet and one cash-flow statement per scenario.
+8. If the user asks where a figure comes from, do not explain it from memory.
+   Point them to the sheet "Where numbers come from": its "Source row" column
+   names the rows of their own input behind every figure. If they ask which
+   run or which input a workbook belongs to, quote the "Forecast identity"
+   lines at the top of the Summary sheet (also returned as `forecast_identity`).
 
 ## How to choose section and treatment
 
