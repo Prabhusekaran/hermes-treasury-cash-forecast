@@ -1,6 +1,6 @@
 [project]
 name = "hermes-treasury-cash-forecast"
-version = "0.2.0"
+version = "0.2.1"
 description = "12-month monthly cash-flow forecast with cent-exact reconciliation, for Hermes Agent"
 readme = "README.md"
 license = { text = "MIT" }

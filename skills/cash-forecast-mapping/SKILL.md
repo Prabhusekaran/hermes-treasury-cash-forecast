@@ -90,7 +90,9 @@ engine's job: never calculate, estimate or adjust a cash figure yourself.
   on cash or an unmapped row). Do not plug the difference.
 - Scenarios are percentages of a line (`-5` = 5% lower receipts, `5` on a
   payment line = 5% higher payments). Ask the user for the percentages; do not
-  invent them. Use `amount` for a fixed monthly sum such as a contingency.
+  invent them. Write the number of percent: 8% lower is `-8`, never `-0.08`
+  (the Excel template shows it as -8%). Use `amount` for a fixed monthly sum
+  such as a contingency.
 - Set `data_kind` to what the user tells you (synthetic, actual, unspecified).
 
 ## What to say about limits

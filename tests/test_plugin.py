@@ -827,7 +827,7 @@ def test_version_is_the_same_everywhere():
     import re
     manifest = re.search(r"^version: (\S+)", (ROOT / "plugin.yaml").read_text(encoding="utf-8"), re.M).group(1)
     project = re.search(r'^version = "(\S+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == project == tools.VERSION == "0.2.0"
+    assert manifest == project == tools.VERSION == "0.2.1"
 
 
 def test_run_reports_what_identifies_it(example):
@@ -980,3 +980,56 @@ def test_manufacturer_is_still_the_default_example_and_an_unknown_one_is_refused
     assert made["contains"] == "synthetic example manufacturer (made-up data)"
     refused = call(tools.cash_forecast_template, output_dir=str(tmp_path / "x"), example="airline")
     assert refused["success"] is False and "manufacturer, hotel" in refused["error"]
+
+
+# --- 0.2.1: scenario percentages are shown and read the way the user sees them ----------------------
+def _hotel_workbook_with_percent_cells(tmp_path, number_format):
+    """The hotel template with every scenario percentage stored as a fraction (-8 becomes -0.08)."""
+    from openpyxl import load_workbook
+    folder = tmp_path / number_format.replace("%", "pct").replace(".", "_").replace('"', "q")
+    made = call(tools.cash_forecast_template, output_dir=str(folder), format="xlsx", example="hotel")
+    book = load_workbook(made["path"])
+    for row in book["scenarios"].iter_rows(min_row=3):
+        if isinstance(row[2].value, (int, float)):
+            row[2].value, row[2].number_format = row[2].value / 100, number_format
+    book.save(made["path"])
+    return made["path"]
+
+
+def test_template_shows_percentages_with_a_percent_sign_and_keeps_the_numbers(hotel, tmp_path):
+    from openpyxl import load_workbook
+    made = call(tools.cash_forecast_template, output_dir=str(tmp_path / "t"), format="xlsx", example="hotel")
+    sheet = load_workbook(made["path"])["scenarios"]
+    assert sheet["C2"].value == "percent" and sheet["C3"].value == -8
+    assert sheet["C3"].number_format == 'General"%"' and sheet["C300"].number_format == 'General"%"'
+    assert sheet["D15"].value == 250000 and sheet["D15"].number_format == "General"
+    result, from_csv = run(made["path"]), run(hotel)
+    assert result["forecast_identity"]["Input fingerprint"] == from_csv["forecast_identity"]["Input fingerprint"]
+    assert result["closing_cash_by_month"] == from_csv["closing_cash_by_month"]
+    empty = call(tools.cash_forecast_template, output_dir=str(tmp_path / "e"), format="xlsx", with_example=False)
+    assert load_workbook(empty["path"])["scenarios"]["C2"].number_format == 'General"%"'
+
+
+@pytest.mark.parametrize("number_format", ["0%", "0.00%", "0.0%;[Red]-0.0%"])
+def test_cell_formatted_as_a_percentage_is_read_as_the_percentage_it_shows(hotel, tmp_path, number_format):
+    result, expected = run(_hotel_workbook_with_percent_cells(tmp_path, number_format)), run(hotel)
+    assert result["closing_cash_by_month"] == expected["closing_cash_by_month"]
+    assert result["forecast_identity"]["Input fingerprint"] == expected["forecast_identity"]["Input fingerprint"]
+    assert not [w for w in result["warnings"] if "is read as" in w]
+
+
+@pytest.mark.parametrize("number_format", ["General", 'General"%"', "0.00"])
+def test_plain_fraction_is_read_as_typed_and_the_warning_says_so(hotel, tmp_path, number_format):
+    result, expected = run(_hotel_workbook_with_percent_cells(tmp_path, number_format)), run(hotel)
+    assert result["forecast_identity"]["Input fingerprint"] != expected["forecast_identity"]["Input fingerprint"]
+    assert result["scenarios"]["weak_season"]["final_closing_cash"] == "677071.11"
+    told = [w for w in result["warnings"] if "is read as" in w]
+    assert len(told) == 14 and told[0] == ("scenarios row 3: percent -0.08 is read as -0.08%, which is less than 1%. "
+                                           "If you meant -8%, type -8.")
+
+
+def test_percent_typed_as_text_with_a_sign_still_works(hotel):
+    column = 2                                          # scenario, line_id, percent, ...
+    edit(hotel, "scenarios", lambda rows: [rows[0]] + [
+        r[:column] + [r[column] + "%" if r[column] else r[column]] + r[column + 1:] for r in rows[1:]])
+    assert run(hotel)["scenarios"]["weak_season"]["final_closing_cash"] == "192110.49"

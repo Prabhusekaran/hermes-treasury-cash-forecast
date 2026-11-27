@@ -1,7 +1,7 @@
 name: treasury-cash-forecast
 label: Treasury Cash Forecast
 kind: standalone
-version: 0.2.0
+version: 0.2.1
 author: Prabhusekaran Muthappan
 license: MIT
 homepage: https://github.com/Prabhusekaran/hermes-treasury-cash-forecast

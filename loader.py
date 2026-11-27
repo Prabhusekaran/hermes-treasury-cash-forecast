@@ -31,6 +31,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -205,6 +206,40 @@ def _read_csv_folder(folder):
     return tables
 
 
+class PercentCell(float):
+    """A number that Excel shows as a percentage: stored as 0.08, shown as 8%, read as 8."""
+
+
+def _is_percent_format(number_format):
+    """True for Excel's percentage formats (0%, 0.00%); False for a literal "%" in quotes."""
+    if not number_format:
+        return False
+    plain = re.sub(r'"[^"]*"|\\.|\[[^\]]*\]', "", str(number_format))
+    return "%" in plain
+
+
+def _scenario_grid(sheet):
+    """The scenarios sheet as rows of values, read the way the user sees it.
+
+    A cell of the percent column that Excel formats as a percentage holds 0.08 and shows 8%.
+    It is read as 8, the figure on the screen. Every other cell is returned as stored.
+    """
+    grid, column = [], None
+    for row in sheet.iter_rows(min_row=1):
+        values = [cell.value for cell in row]
+        if column is None:
+            for index, value in enumerate(values):
+                if isinstance(value, str) and value.strip().lower() == "percent":
+                    column = index
+        elif column < len(row):
+            cell = row[column]
+            if (isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool)
+                    and _is_percent_format(getattr(cell, "number_format", None))):
+                values[column] = PercentCell(round(cell.value * 100, 10))
+        grid.append(tuple(values))
+    return grid
+
+
 def _read_workbook(path):
     try:
         from openpyxl import load_workbook
@@ -221,7 +256,8 @@ def _read_workbook(path):
         for sheet in book.worksheets:
             title = sheet.title.strip().lower()
             by_name.setdefault(ALIASES.get(title, title), sheet)
-        return {name: _rows_from_grid(list(by_name[name].iter_rows(min_row=1, values_only=True)))
+        return {name: _rows_from_grid(_scenario_grid(by_name[name]) if name == "scenarios"
+                                      else list(by_name[name].iter_rows(min_row=1, values_only=True)))
                 for name in READABLE if name in by_name}
     finally:
         book.close()
@@ -594,9 +630,10 @@ def load_inputs(input_path):
                 if start and end and end < start:
                     problems.append(f"{where}: to_month is before from_month.")
                     continue
-                if percent is not None and isinstance(percent_cell, (int, float)) and 0 < abs(percent) < 1:
-                    warnings.append(f"{where}: percent {percent} is read as {percent}%. If the cell is formatted "
-                                    f"as a percentage and you meant {percent * 100:g}%, type {percent * 100:g}.")
+                if (percent is not None and isinstance(percent_cell, (int, float))
+                        and not isinstance(percent_cell, PercentCell) and 0 < abs(percent) < 1):
+                    warnings.append(f"{where}: percent {percent:g} is read as {percent:g}%, which is less than "
+                                    f"1%. If you meant {percent * 100:g}%, type {percent * 100:g}.")
                 rules.append(ScenarioRule(scenario, line_id, percent, amount, start, end, note, number))
 
     # opening cash for the forecast = closing cash at the end of origin_month

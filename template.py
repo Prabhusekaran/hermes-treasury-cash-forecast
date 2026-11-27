@@ -67,7 +67,7 @@ INSTRUCTIONS = [
                      "To see its effect anyway, add it as a scenario."],
     ["scenarios", "Optional what-if cases, grouped by a scenario name you choose (for example downside). "
                   "percent changes the size of a line: -4 on receipts means 4% lower receipts, 4 on "
-                  "supplier payments means 4% higher payments. Type -4, not a percentage-formatted cell. "
+                  "supplier payments means 4% higher payments. Type -4 (in Excel the cell then shows -4%). "
                   "Use amount (per month) for a fixed sum, such as a contingency. "
                   "from_month and to_month are optional; empty means all 12 forecast months. "
                   "A payment that arrives late is two amount rows: minus the amount in the month it "
@@ -207,5 +207,9 @@ def write_template(output_dir, file_format="xlsx", with_example=True, example=DE
             sheet.column_dimensions[sheet.cell(head, sheet.max_column).column_letter].width = 60
             if name == "known_events":
                 dropdown(sheet, ("replace", "on top"), f"D{head + 1}:D{last}")
+            else:                           # scenarios: -4 is shown as -4%; the cell still holds -4
+                column = rows[0].index("percent") + 1
+                for row_number in range(head + 1, last + 1):
+                    sheet.cell(row_number, column).number_format = 'General"%"'
     book.save(path)
     return path

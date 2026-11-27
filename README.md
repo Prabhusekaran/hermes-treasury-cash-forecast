@@ -154,8 +154,9 @@ On a known line there is no model figure, so `effect` is ignored.
 
 **Scenarios are percentages.** `percent` changes the size of a line: `-4` on
 receipts means 4% lower receipts, `4` on supplier payments means 4% higher
-payments. The percentage is taken from the line's base-case figure for that
-month. Leave `from_month` and `to_month` empty for all 12 months. Use `amount`
+payments. In the Excel template the cell shows `-4` as -4%; a cell that Excel
+itself formats as a percentage is read as the percentage it shows. The
+percentage is taken from the line's base-case figure for that month. Leave `from_month` and `to_month` empty for all 12 months. Use `amount`
 for a fixed monthly sum, such as a contingency. A payment that arrives late is
 two `amount` rows: minus the amount in the month it was due, plus the amount in
 the month it arrives. Every scenario is run and shown next to the base case.
@@ -250,6 +251,19 @@ per line, the model's original figures where a known amount replaced them,
 items left out and why, file hashes).
 
 By default everything is saved in `cash_forecast_output/` next to your input.
+
+## What changed in 0.2.1
+
+- **Percentages look like percentages.** In the Excel template the `percent`
+  column of the `scenarios` sheet shows `-4` as -4%. The cell still holds -4.
+- **A percentage typed the Excel way is read correctly.** A cell that Excel
+  formats as a percentage holds 0.08 and shows 8%. It is now read as 8, the
+  figure on the screen, instead of 0.08.
+- **A fraction cannot slip through quietly.** A plain number between -1 and 1,
+  such as `0.08`, is still read as typed (0.08%), and the warning now says so
+  in plain words.
+- No forecast figure changed for an input that was read correctly before, and
+  both examples keep their fingerprints.
 
 ## What changed in 0.2.0
 
