@@ -1020,16 +1020,25 @@ def test_cell_formatted_as_a_percentage_is_read_as_the_percentage_it_shows(hotel
 
 @pytest.mark.parametrize("number_format", ["General", 'General"%"', "0.00"])
 def test_plain_fraction_is_read_as_typed_and_the_warning_says_so(hotel, tmp_path, number_format):
-    result, expected = run(_hotel_workbook_with_percent_cells(tmp_path, number_format)), run(hotel)
-    assert result["forecast_identity"]["Input fingerprint"] != expected["forecast_identity"]["Input fingerprint"]
-    assert result["scenarios"]["weak_season"]["final_closing_cash"] == "677071.11"
+    result, as_shown = run(_hotel_workbook_with_percent_cells(tmp_path, number_format)), run(hotel)
+    assert result["forecast_identity"]["Input fingerprint"] != as_shown["forecast_identity"]["Input fingerprint"]
+    column = 2                                          # scenario, line_id, percent, ...
+    edit(hotel, "scenarios", lambda rows: [rows[0]] + [                # the same fractions, typed into the CSV
+        r[:column] + [repr(float(r[column]) / 100) if r[column] else r[column]] + r[column + 1:] for r in rows[1:]])
+    as_typed = run(hotel)                               # compared within this run: fitted figures differ by machine
+    assert result["closing_cash_by_month"] == as_typed["closing_cash_by_month"]
+    assert result["forecast_identity"]["Input fingerprint"] == as_typed["forecast_identity"]["Input fingerprint"]
+    assert result["closing_cash_by_month"] != as_shown["closing_cash_by_month"]
     told = [w for w in result["warnings"] if "is read as" in w]
     assert len(told) == 14 and told[0] == ("scenarios row 3: percent -0.08 is read as -0.08%, which is less than 1%. "
                                            "If you meant -8%, type -8.")
 
 
 def test_percent_typed_as_text_with_a_sign_still_works(hotel):
+    expected = run(hotel)                               # same run, same machine: no fixed fitted figure
     column = 2                                          # scenario, line_id, percent, ...
     edit(hotel, "scenarios", lambda rows: [rows[0]] + [
         r[:column] + [r[column] + "%" if r[column] else r[column]] + r[column + 1:] for r in rows[1:]])
-    assert run(hotel)["scenarios"]["weak_season"]["final_closing_cash"] == "192110.49"
+    result = run(hotel)
+    assert result["closing_cash_by_month"] == expected["closing_cash_by_month"]
+    assert not [w for w in result["warnings"] if "is read as" in w]
